@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (c) 2014-2019 OpenRCT2 developers
+ * Copyright (c) 2014-2020 OpenRCT2 developers
  *
  * For a complete list of all authors, please refer to contributors.md
  * Interested in contributing? Visit https://github.com/OpenRCT2/OpenRCT2
@@ -24,16 +24,16 @@ public:
     rct_string_id NameStringId{};
     uint32_t BaseImageId{};
     uint32_t ShelterImageId{};
-    uint32_t Flags;
-    int32_t Height;
-    uint8_t ScrollingMode;
+    uint32_t Flags{};
+    int32_t Height{};
+    uint8_t ScrollingMode{};
 
     explicit StationObject(const rct_object_entry& entry)
         : Object(entry)
     {
     }
 
-    void ReadJson(IReadObjectContext* context, const json_t* root) override;
+    void ReadJson(IReadObjectContext* context, json_t& root) override;
     void Load() override;
     void Unload() override;
 

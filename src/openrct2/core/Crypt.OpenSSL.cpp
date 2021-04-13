@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (c) 2014-2019 OpenRCT2 developers
+ * Copyright (c) 2014-2020 OpenRCT2 developers
  *
  * For a complete list of all authors, please refer to contributors.md
  * Interested in contributing? Visit https://github.com/OpenRCT2/OpenRCT2
@@ -7,7 +7,7 @@
  * OpenRCT2 is licensed under the GNU General Public License version 3.
  *****************************************************************************/
 
-#ifndef DISABLE_NETWORK
+#if !defined(DISABLE_NETWORK) && (!defined(_WIN32) || (defined(_WIN32_WINNT) && _WIN32_WINNT < 0x0600))
 
 #    include "Crypt.h"
 
@@ -19,7 +19,7 @@
 
 using namespace Crypt;
 
-static void OpenSSLThrowOnBadStatus(const std::string_view& name, int status)
+static void OpenSSLThrowOnBadStatus(std::string_view name, int status)
 {
     if (status != 1)
     {
@@ -156,12 +156,12 @@ public:
         }
     }
 
-    void SetPrivate(const std::string_view& pem) override
+    void SetPrivate(std::string_view pem) override
     {
         SetKey(pem, true);
     }
 
-    void SetPublic(const std::string_view& pem) override
+    void SetPublic(std::string_view pem) override
     {
         SetKey(pem, false);
     }
@@ -179,11 +179,11 @@ public:
 private:
     EVP_PKEY* _evpKey{};
 
-    void SetKey(const std::string_view& pem, bool isPrivate)
+    void SetKey(std::string_view pem, bool isPrivate)
     {
         // Read PEM data via BIO buffer
         // HACK first parameter is not const on MINGW for some reason
-        auto bio = BIO_new_mem_buf((void*)pem.data(), (int)pem.size());
+        auto bio = BIO_new_mem_buf(static_cast<const void*>(pem.data()), static_cast<int>(pem.size()));
         if (bio == nullptr)
         {
             throw std::runtime_error("BIO_new_mem_buf failed");
@@ -307,7 +307,7 @@ public:
             status = EVP_DigestVerifyUpdate(mdctx, data, dataLen);
             OpenSSLThrowOnBadStatus("EVP_DigestVerifyUpdate", status);
 
-            status = EVP_DigestVerifyFinal(mdctx, (uint8_t*)sig, sigLen);
+            status = EVP_DigestVerifyFinal(mdctx, static_cast<const uint8_t*>(sig), sigLen);
             if (status != 0 && status != 1)
             {
                 OpenSSLThrowOnBadStatus("EVP_DigestVerifyUpdate", status);

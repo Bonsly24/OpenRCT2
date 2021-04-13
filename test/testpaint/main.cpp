@@ -273,7 +273,7 @@ BOOL APIENTRY DllMain(HANDLE hModule, DWORD dwReason, LPVOID lpReserved)
     return TRUE;
 }
 
-__declspec(dllexport) int StartOpenRCT(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow)
+__declspec(dllexport) int StartOpenRCT2(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow)
 {
     if (_dllModule == nullptr)
     {
@@ -398,7 +398,7 @@ static bool openrct2_setup_rct2_segment()
 
 static void PrintRideTypes()
 {
-    for (uint8_t rideType = 0; rideType < RIDE_TYPE_COUNT; rideType++)
+    for (uint8_t rideType = 0; rideType < RCT2_RIDE_TYPE_COUNT; rideType++)
     {
         CLIColour colour = CLIColour::DEFAULT;
         bool implemented = Utils::rideIsImplemented(rideType);
@@ -505,7 +505,7 @@ int main(int argc, char* argv[])
         return generatePaintCode(specificRideType);
     }
 
-    for (uint8_t rideType = 0; rideType < RIDE_TYPE_COUNT; rideType++)
+    for (uint8_t rideType = 0; rideType < RCT2_RIDE_TYPE_COUNT; rideType++)
     {
         if (specificRideType != RIDE_TYPE_NULL && rideType != specificRideType)
         {
@@ -520,9 +520,9 @@ int main(int argc, char* argv[])
         TestCase testCase = {};
         testCase.rideType = rideType;
 
-        if (ride_type_has_flag(rideType, RIDE_TYPE_FLAG_FLAT_RIDE))
+        if (GetRideTypeDescriptor(rideType).HasFlag(RIDE_TYPE_FLAG_FLAT_RIDE))
         {
-            testCase.trackTypes.push_back(RideConstructionDefaultTrackType[rideType]);
+            testCase.trackTypes.push_back(GetRideTypeDescriptor(rideType).StartTrackPiece);
         }
         else
         {
@@ -564,7 +564,7 @@ int main(int argc, char* argv[])
         for (auto&& trackType : tc.trackTypes)
         {
             utf8string trackTypeName;
-            if (ride_type_has_flag(tc.rideType, RIDE_TYPE_FLAG_FLAT_RIDE))
+            if (GetRideTypeDescriptor(tc.rideType).HasFlag(RIDE_TYPE_FLAG_FLAT_RIDE))
             {
                 trackTypeName = FlatTrackNames[trackType];
             }

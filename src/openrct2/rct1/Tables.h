@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (c) 2014-2019 OpenRCT2 developers
+ * Copyright (c) 2014-2020 OpenRCT2 developers
  *
  * For a complete list of all authors, please refer to contributors.md
  * Interested in contributing? Visit https://github.com/OpenRCT2/OpenRCT2
@@ -23,10 +23,10 @@ namespace RCT1
 
     colour_t GetColour(colour_t colour);
     PeepSpriteType GetPeepSpriteType(uint8_t rct1SpriteType);
-    uint8_t GetTerrain(uint8_t terrain);
-    uint8_t GetTerrainEdge(uint8_t terrainEdge);
+    ObjectEntryIndex GetTerrain(uint8_t terrain);
+    ObjectEntryIndex GetTerrainEdge(uint8_t terrainEdge);
 
-    uint8_t GetRideType(uint8_t rideType);
+    uint8_t GetRideType(uint8_t rideType, uint8_t vehicleType);
     RCT1VehicleColourSchemeCopyDescriptor GetColourSchemeCopyDescriptor(uint8_t vehicleType);
     bool RideTypeUsesVehicles(uint8_t rideType);
     bool PathIsQueue(uint8_t pathType);

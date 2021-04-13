@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (c) 2014-2019 OpenRCT2 developers
+ * Copyright (c) 2014-2020 OpenRCT2 developers
  *
  * For a complete list of all authors, please refer to contributors.md
  * Interested in contributing? Visit https://github.com/OpenRCT2/OpenRCT2
@@ -19,9 +19,12 @@
 #    undef interface
 #    undef abstract
 
+#    include <ApplicationServices/ApplicationServices.h>
 #    import <Cocoa/Cocoa.h>
+#    include <CoreFoundation/CFBundle.h>
 #    include <SDL.h>
 #    include <mach-o/dyld.h>
+#    include <string>
 
 namespace OpenRCT2::Ui
 {
@@ -31,7 +34,8 @@ namespace OpenRCT2::Ui
     public:
         macOSContext()
         {
-            @autoreleasepool {
+            @autoreleasepool
+            {
                 if ([NSWindow respondsToSelector:@selector(setAllowsAutomaticWindowTabbing:)])
                 {
                     [NSWindow setAllowsAutomaticWindowTabbing:NO];
@@ -51,7 +55,8 @@ namespace OpenRCT2::Ui
 
         void ShowMessageBox(SDL_Window* window, const std::string& message) override
         {
-            @autoreleasepool {
+            @autoreleasepool
+            {
                 NSAlert* alert = [[[NSAlert alloc] init] autorelease];
                 [alert addButtonWithTitle:@"OK"];
                 alert.messageText = [NSString stringWithUTF8String:message.c_str()];
@@ -59,18 +64,39 @@ namespace OpenRCT2::Ui
             }
         }
 
+        bool HasMenuSupport() override
+        {
+            return false;
+        }
+
+        int32_t ShowMenuDialog(
+            const std::vector<std::string>& options, const std::string& title, const std::string& text) override
+        {
+            return -1;
+        }
+
         void OpenFolder(const std::string& path) override
         {
-            @autoreleasepool {
+            @autoreleasepool
+            {
                 NSString* nsPath = [NSString stringWithUTF8String:path.c_str()];
-                NSURL *folderURL = [NSURL fileURLWithPath: nsPath];
-                [[NSWorkspace sharedWorkspace] openURL: folderURL];
+                NSURL* folderURL = [NSURL fileURLWithPath:nsPath];
+                [[NSWorkspace sharedWorkspace] openURL:folderURL];
             }
+        }
+
+        void OpenURL(const std::string& url) override
+        {
+            CFURLRef urlRef = CFURLCreateWithBytes(
+                nullptr, reinterpret_cast<const UInt8*>(url.c_str()), url.length(), kCFStringEncodingUTF8, nullptr);
+            LSOpenCFURLRef(urlRef, 0);
+            CFRelease(urlRef);
         }
 
         std::string ShowFileDialog(SDL_Window* window, const FileDialogDesc& desc) override
         {
-            @autoreleasepool {
+            @autoreleasepool
+            {
                 NSMutableArray* extensions = [NSMutableArray new];
                 for (const OpenRCT2::Ui::FileDialogDesc::Filter& filter : desc.Filters)
                 {
@@ -122,7 +148,8 @@ namespace OpenRCT2::Ui
 
         std::string ShowDirectoryDialog(SDL_Window* window, const std::string& title) override
         {
-            @autoreleasepool {
+            @autoreleasepool
+            {
                 NSOpenPanel* panel = [NSOpenPanel openPanel];
                 panel.canChooseFiles = false;
                 panel.canChooseDirectories = true;
@@ -140,10 +167,15 @@ namespace OpenRCT2::Ui
             }
         }
 
+        bool HasFilePicker() const override
+        {
+            return true;
+        }
+
     private:
         static int32_t Execute(const std::string& command, std::string* output = nullptr)
         {
-            log_verbose("executing \"%s\"...\n", command.c_str());
+            log_verbose("executing \"%s\"...", command.c_str());
             FILE* fpipe = popen(command.c_str(), "r");
             if (fpipe == nullptr)
             {

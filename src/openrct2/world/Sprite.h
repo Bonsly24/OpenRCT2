@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (c) 2014-2019 OpenRCT2 developers
+ * Copyright (c) 2014-2020 OpenRCT2 developers
  *
  * For a complete list of all authors, please refer to contributors.md
  * Interested in contributing? Visit https://github.com/OpenRCT2/OpenRCT2
@@ -13,43 +13,22 @@
 #include "../common.h"
 #include "../peep/Peep.h"
 #include "../ride/Vehicle.h"
+#include "Entity.h"
+#include "Fountain.h"
 #include "SpriteBase.h"
 
-#define SPRITE_INDEX_NULL 0xFFFF
-#define MAX_SPRITES 10000
-#define NUM_SPRITE_LISTS 6
+enum LitterType : uint8_t;
 
-enum SPRITE_IDENTIFIER
+struct Litter : SpriteBase
 {
-    SPRITE_IDENTIFIER_VEHICLE = 0,
-    SPRITE_IDENTIFIER_PEEP = 1,
-    SPRITE_IDENTIFIER_MISC = 2,
-    SPRITE_IDENTIFIER_LITTER = 3,
-    SPRITE_IDENTIFIER_NULL = 255
-};
-
-enum SPRITE_LIST
-{
-    SPRITE_LIST_NULL,
-    SPRITE_LIST_TRAIN,
-    SPRITE_LIST_PEEP,
-    SPRITE_LIST_MISC,
-    SPRITE_LIST_LITTER,
-    SPRITE_LIST_UNKNOWN,
-};
-
-struct rct_sprite_generic : rct_sprite_common
-{
-    uint16_t frame;
-};
-
-struct rct_litter : rct_sprite_common
-{
+    static constexpr auto cEntityType = EntityType::Litter;
+    LitterType SubType;
     uint32_t creationTick;
 };
 
-struct rct_balloon : rct_sprite_generic
+struct Balloon : MiscEntity
 {
+    static constexpr auto cEntityType = EntityType::Balloon;
     uint16_t popped;
     uint8_t time_to_move;
     uint8_t colour;
@@ -59,44 +38,53 @@ struct rct_balloon : rct_sprite_generic
     void Press();
 };
 
-struct rct_duck : rct_sprite_generic
+struct Duck : MiscEntity
 {
+    static constexpr auto cEntityType = EntityType::Duck;
+    enum class DuckState : uint8_t
+    {
+        FlyToWater,
+        Swim,
+        Drink,
+        DoubleDrink,
+        FlyAway,
+    };
     int16_t target_x;
     int16_t target_y;
-    uint8_t state;
+    DuckState state;
 
+    void Update();
+    uint32_t GetFrameImage(int32_t direction) const;
+    bool IsFlying();
+    void Remove();
+
+private:
     void UpdateFlyToWater();
     void UpdateSwim();
     void UpdateDrink();
     void UpdateDoubleDrink();
     void UpdateFlyAway();
-    uint32_t GetFrameImage(int32_t direction) const;
-    void Invalidate();
-    void Remove();
-    void MoveTo(int16_t x, int16_t y, int16_t z);
 };
 
-struct rct_jumping_fountain : rct_sprite_generic
+struct MoneyEffect : MiscEntity
 {
-    uint8_t num_ticks_alive;
-    uint8_t fountain_flags;
-    int16_t target_x;
-    int16_t target_y;
-    uint16_t iteration;
+    static constexpr auto cEntityType = EntityType::MoneyEffect;
+    uint16_t MoveDelay;
+    uint8_t NumMovements;
+    uint8_t Vertical;
+    money32 Value;
+    int16_t OffsetX;
+    uint16_t Wiggle;
+
+    static void CreateAt(money32 value, const CoordsXYZ& effectPos, bool vertical);
+    static void Create(money32 value, const CoordsXYZ& loc);
+    void Update();
+    std::pair<rct_string_id, money32> GetStringId() const;
 };
 
-struct rct_money_effect : rct_sprite_common
+struct VehicleCrashParticle : MiscEntity
 {
-    uint16_t move_delay;
-    uint8_t num_movements;
-    uint8_t vertical;
-    money32 value;
-    int16_t offset_x;
-    uint16_t wiggle;
-};
-
-struct rct_crashed_vehicle_particle : rct_sprite_generic
-{
+    static constexpr auto cEntityType = EntityType::CrashedVehicleParticle;
     uint16_t time_to_live;
     uint8_t colour[2];
     uint16_t crashed_sprite_base;
@@ -106,45 +94,63 @@ struct rct_crashed_vehicle_particle : rct_sprite_generic
     int32_t acceleration_x;
     int32_t acceleration_y;
     int32_t acceleration_z;
+
+    void Update();
 };
 
-struct rct_crash_splash : rct_sprite_generic
+struct ExplosionFlare : MiscEntity
 {
+    static constexpr auto cEntityType = EntityType::ExplosionFlare;
+    void Update();
 };
 
-struct rct_steam_particle : rct_sprite_generic
+struct ExplosionCloud : MiscEntity
 {
+    static constexpr auto cEntityType = EntityType::ExplosionCloud;
+    void Update();
+};
+
+struct CrashSplashParticle : MiscEntity
+{
+    static constexpr auto cEntityType = EntityType::CrashSplash;
+    void Update();
+};
+
+struct SteamParticle : MiscEntity
+{
+    static constexpr auto cEntityType = EntityType::SteamParticle;
     uint16_t time_to_move;
+
+    void Update();
 };
 
 #pragma pack(push, 1)
 /**
  * Sprite structure.
- * size: 0x0100
+ * size: 0x0200
  */
 union rct_sprite
 {
-    uint8_t pad_00[0x100];
-    rct_sprite_generic generic;
+    uint8_t pad_00[0x200];
+    MiscEntity misc;
     Peep peep;
-    rct_litter litter;
-    rct_vehicle vehicle;
-    rct_balloon balloon;
-    rct_duck duck;
-    rct_jumping_fountain jumping_fountain;
-    rct_money_effect money_effect;
-    rct_crashed_vehicle_particle crashed_vehicle_particle;
-    rct_crash_splash crash_splash;
-    rct_steam_particle steam_particle;
+    Litter litter;
+    Vehicle vehicle;
+    Balloon balloon;
+    Duck duck;
+    JumpingFountain jumping_fountain;
+    MoneyEffect money_effect;
+    VehicleCrashParticle crashed_vehicle_particle;
+    CrashSplashParticle crash_splash;
+    SteamParticle steam_particle;
 
-    bool IsBalloon();
-    bool IsDuck();
-    bool IsPeep();
-    rct_balloon* AsBalloon();
-    rct_duck* AsDuck();
-    Peep* AsPeep();
+    // Default constructor to prevent non trivial construction issues
+    rct_sprite()
+        : pad_00()
+    {
+    }
 };
-assert_struct_size(rct_sprite, 0x100);
+assert_struct_size(rct_sprite, 0x200);
 
 struct rct_sprite_checksum
 {
@@ -157,26 +163,12 @@ struct rct_sprite_checksum
 
 enum
 {
-    SPRITE_MISC_STEAM_PARTICLE,
-    SPRITE_MISC_MONEY_EFFECT,
-    SPRITE_MISC_CRASHED_VEHICLE_PARTICLE,
-    SPRITE_MISC_EXPLOSION_CLOUD,
-    SPRITE_MISC_CRASH_SPLASH,
-    SPRITE_MISC_EXPLOSION_FLARE,
-    SPRITE_MISC_JUMPING_FOUNTAIN_WATER,
-    SPRITE_MISC_BALLOON,
-    SPRITE_MISC_DUCK,
-    SPRITE_MISC_JUMPING_FOUNTAIN_SNOW
-};
-
-enum
-{
     SPRITE_FLAGS_IS_CRASHED_VEHICLE_SPRITE = 1 << 7,
     SPRITE_FLAGS_PEEP_VISIBLE = 1 << 8,  // Peep is eligible to show in summarized guest list window (is inside park?)
     SPRITE_FLAGS_PEEP_FLASHING = 1 << 9, // Deprecated: Use sprite_set_flashing/sprite_get_flashing instead.
 };
 
-enum
+enum LitterType : uint8_t
 {
     LITTER_TYPE_SICK,
     LITTER_TYPE_SICK_ALT,
@@ -192,77 +184,78 @@ enum
     LITTER_TYPE_EMPTY_BOWL_BLUE,
 };
 
-rct_sprite* try_get_sprite(size_t spriteIndex);
-rct_sprite* get_sprite(size_t sprite_idx);
-
-extern uint16_t gSpriteListHead[6];
-extern uint16_t gSpriteListCount[6];
-extern uint16_t gSpriteSpatialIndex[0x10001];
+constexpr const uint32_t SPATIAL_INDEX_SIZE = (MAXIMUM_MAP_SIZE_TECHNICAL * MAXIMUM_MAP_SIZE_TECHNICAL) + 1;
+constexpr const uint32_t SPATIAL_INDEX_LOCATION_NULL = SPATIAL_INDEX_SIZE - 1;
 
 extern const rct_string_id litterNames[12];
 
-rct_sprite* create_sprite(uint8_t bl);
+rct_sprite* create_sprite(EntityType type);
+template<typename T> T* CreateEntity()
+{
+    return reinterpret_cast<T*>(create_sprite(T::cEntityType));
+}
+
+// Use only with imports that must happen at a specified index
+SpriteBase* CreateEntityAt(const uint16_t index, const EntityType type);
+// Use only with imports that must happen at a specified index
+template<typename T> T* CreateEntityAt(const uint16_t index)
+{
+    return static_cast<T*>(CreateEntityAt(index, T::cEntityType));
+}
 void reset_sprite_list();
 void reset_sprite_spatial_index();
 void sprite_clear_all_unused();
-void move_sprite_to_list(rct_sprite* sprite, uint8_t cl);
 void sprite_misc_update_all();
-void sprite_move(int16_t x, int16_t y, int16_t z, rct_sprite* sprite);
-void sprite_set_coordinates(int16_t x, int16_t y, int16_t z, rct_sprite* sprite);
-void invalidate_sprite_0(rct_sprite* sprite);
-void invalidate_sprite_1(rct_sprite* sprite);
-void invalidate_sprite_2(rct_sprite* sprite);
-void sprite_remove(rct_sprite* sprite);
-void litter_create(int32_t x, int32_t y, int32_t z, int32_t direction, int32_t type);
-void litter_remove_at(int32_t x, int32_t y, int32_t z);
-void sprite_misc_explosion_cloud_create(int32_t x, int32_t y, int32_t z);
-void sprite_misc_explosion_flare_create(int32_t x, int32_t y, int32_t z);
-uint16_t sprite_get_first_in_quadrant(int32_t x, int32_t y);
-void sprite_position_tween_store_a();
-void sprite_position_tween_store_b();
-void sprite_position_tween_all(float nudge);
-void sprite_position_tween_restore();
-void sprite_position_tween_reset();
+void sprite_set_coordinates(const CoordsXYZ& spritePos, SpriteBase* sprite);
+void sprite_remove(SpriteBase* sprite);
+void litter_create(const CoordsXYZD& litterPos, LitterType type);
+void litter_remove_at(const CoordsXYZ& litterPos);
+uint16_t remove_floating_sprites();
+void sprite_misc_explosion_cloud_create(const CoordsXYZ& cloudPos);
+void sprite_misc_explosion_flare_create(const CoordsXYZ& flarePos);
 
 ///////////////////////////////////////////////////////////////
 // Balloon
 ///////////////////////////////////////////////////////////////
-void create_balloon(int32_t x, int32_t y, int32_t z, int32_t colour, bool isPopped);
-void balloon_update(rct_balloon* balloon);
-void game_command_balloon_press(
-    int32_t* eax, int32_t* ebx, int32_t* ecx, int32_t* edx, int32_t* esi, int32_t* edi, int32_t* ebp);
+void create_balloon(const CoordsXYZ& balloonPos, int32_t colour, bool isPopped);
+void balloon_update(Balloon* balloon);
 
 ///////////////////////////////////////////////////////////////
 // Duck
 ///////////////////////////////////////////////////////////////
-void create_duck(int32_t targetX, int32_t targetY);
-void duck_update(rct_duck* duck);
-void duck_press(rct_duck* duck);
+void create_duck(const CoordsXY& pos);
+void duck_press(Duck* duck);
 void duck_remove_all();
-uint32_t duck_get_frame_image(const rct_duck* duck, int32_t direction);
-
-///////////////////////////////////////////////////////////////
-// Money effect
-///////////////////////////////////////////////////////////////
-void money_effect_create(money32 value);
-void money_effect_create_at(money32 value, int32_t x, int32_t y, int32_t z, bool vertical);
-void money_effect_update(rct_money_effect* moneyEffect);
-rct_string_id money_effect_get_string_id(const rct_money_effect* sprite, money32* outValue);
 
 ///////////////////////////////////////////////////////////////
 // Crash particles
 ///////////////////////////////////////////////////////////////
-void crashed_vehicle_particle_create(rct_vehicle_colour colours, int32_t x, int32_t y, int32_t z);
-void crashed_vehicle_particle_update(rct_crashed_vehicle_particle* particle);
-void crash_splash_create(int32_t x, int32_t y, int32_t z);
-void crash_splash_update(rct_crash_splash* splash);
+void crashed_vehicle_particle_create(rct_vehicle_colour colours, const CoordsXYZ& vehiclePos);
+void crash_splash_create(const CoordsXYZ& splashPos);
 
 rct_sprite_checksum sprite_checksum();
 
-void sprite_set_flashing(rct_sprite* sprite, bool flashing);
-bool sprite_get_flashing(rct_sprite* sprite);
-int32_t check_for_sprite_list_cycles(bool fix);
-int32_t check_for_spatial_index_cycles(bool fix);
-int32_t fix_disjoint_sprites();
+void sprite_set_flashing(SpriteBase* sprite, bool flashing);
+bool sprite_get_flashing(SpriteBase* sprite);
+
+class EntityTweener
+{
+    std::vector<SpriteBase*> Entities;
+    std::vector<CoordsXYZ> PrePos;
+    std::vector<CoordsXYZ> PostPos;
+
+private:
+    void PopulateEntities();
+
+public:
+    static EntityTweener& Get();
+
+    void PreTick();
+    void PostTick();
+    void RemoveEntity(SpriteBase* entity);
+    void Tween(float alpha);
+    void Restore();
+    void Reset();
+};
 
 #endif

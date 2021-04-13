@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (c) 2014-2019 OpenRCT2 developers
+ * Copyright (c) 2014-2020 OpenRCT2 developers
  *
  * For a complete list of all authors, please refer to contributors.md
  * Interested in contributing? Visit https://github.com/OpenRCT2/OpenRCT2
@@ -14,6 +14,10 @@
 #include <openrct2/interface/Colour.h>
 #include <openrct2/localisation/Localisation.h>
 
+static constexpr const rct_string_id WINDOW_TITLE = STR_MUSIC_ACKNOWLEDGEMENTS;
+static constexpr const int32_t WH = 314;
+static constexpr const int32_t WW = 510;
+
 // clang-format off
 enum WINDOW_MUSIC_CREDITS_WIDGET_IDX {
     WIDX_BACKGROUND,
@@ -22,10 +26,8 @@ enum WINDOW_MUSIC_CREDITS_WIDGET_IDX {
 };
 
 static rct_widget window_music_credits_widgets[] = {
-    { WWT_FRAME,    0,  0,      509,    0,  313,    0xFFFFFFFF,                 STR_NONE },             // panel / background
-    { WWT_CAPTION,  0,  1,      508,    1,  14,     STR_MUSIC_ACKNOWLEDGEMENTS, STR_WINDOW_TITLE_TIP }, // title bar
-    { WWT_CLOSEBOX, 0,  497,    507,    2,  13,     STR_CLOSE_X,                STR_CLOSE_WINDOW_TIP }, // close x button
-    { WWT_SCROLL,   0,  4,      505,    18, 309,    SCROLL_VERTICAL,            STR_NONE },             // scroll
+    WINDOW_SHIM(WINDOW_TITLE, WW, WH),
+    MakeWidget({4, 18}, {502, 292}, WindowWidgetType::Scroll, WindowColour::Primary, SCROLL_VERTICAL), // scroll
     { WIDGETS_END },
 };
 
@@ -82,36 +84,13 @@ static void window_music_credits_scrollgetsize(rct_window *w, int32_t scrollInde
 static void window_music_credits_paint(rct_window *w, rct_drawpixelinfo *dpi);
 static void window_music_credits_scrollpaint(rct_window *w, rct_drawpixelinfo *dpi, int32_t scrollIndex);
 
-static rct_window_event_list window_music_credits_events = {
-    nullptr,
-    window_music_credits_mouseup,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    window_music_credits_scrollgetsize,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    window_music_credits_paint,
-    window_music_credits_scrollpaint
-};
+static rct_window_event_list window_music_credits_events([](auto& events)
+{
+    events.mouse_up = &window_music_credits_mouseup;
+    events.get_scroll_size = &window_music_credits_scrollgetsize;
+    events.paint = &window_music_credits_paint;
+    events.scroll_paint = &window_music_credits_scrollpaint;
+});
 // clang-format on
 
 /**
@@ -127,12 +106,12 @@ rct_window* window_music_credits_open()
     if (window != nullptr)
         return window;
 
-    window = window_create_centred(510, 314, &window_music_credits_events, WC_MUSIC_CREDITS, 0);
+    window = WindowCreateCentred(510, 314, &window_music_credits_events, WC_MUSIC_CREDITS, 0);
 
     window->widgets = window_music_credits_widgets;
     window->enabled_widgets = 1 << WIDX_CLOSE;
 
-    window_init_scroll_widgets(window);
+    WindowInitScrollWidgets(window);
     window->colours[0] = COLOUR_LIGHT_BLUE;
     window->colours[1] = COLOUR_LIGHT_BLUE;
     window->colours[2] = COLOUR_LIGHT_BLUE;
@@ -160,7 +139,7 @@ static void window_music_credits_mouseup(rct_window* w, rct_widgetindex widgetIn
  */
 static void window_music_credits_scrollgetsize(rct_window* w, int32_t scrollIndex, int32_t* width, int32_t* height)
 {
-    int32_t lineHeight = font_get_line_height(gCurrentFontSpriteBase);
+    int32_t lineHeight = font_get_line_height(FontSpriteBase::MEDIUM);
     *height = static_cast<int32_t>(std::size(music_credits) + std::size(music_credits_rct2)) * lineHeight + 12;
 }
 
@@ -170,7 +149,7 @@ static void window_music_credits_scrollgetsize(rct_window* w, int32_t scrollInde
  */
 static void window_music_credits_paint(rct_window* w, rct_drawpixelinfo* dpi)
 {
-    window_draw_widgets(w, dpi);
+    WindowDrawWidgets(w, dpi);
 }
 
 /**
@@ -179,30 +158,29 @@ static void window_music_credits_paint(rct_window* w, rct_drawpixelinfo* dpi)
  */
 static void window_music_credits_scrollpaint(rct_window* w, rct_drawpixelinfo* dpi, int32_t scrollIndex)
 {
-    int32_t lineHeight = font_get_line_height(gCurrentFontSpriteBase);
+    int32_t lineHeight = font_get_line_height(FontSpriteBase::MEDIUM);
 
-    int32_t x = 245;
-    int32_t y = 2;
+    auto screenCoords = ScreenCoordsXY{ 245, 2 };
 
     for (size_t i = 0; i < std::size(music_credits); i++)
     {
-        gfx_draw_string_centred(dpi, music_credits[i], x, y, COLOUR_BLACK, nullptr);
-        y += lineHeight;
+        DrawTextBasic(dpi, screenCoords, music_credits[i], nullptr, { TextAlignment::CENTRE });
+        screenCoords.y += lineHeight;
     }
 
     // Add 4 more space before "Original recordings ...".
-    y += 4;
-    gfx_draw_string_centred(dpi, STR_MUSIC_ACKNOWLEDGEMENTS_ORIGINAL_RECORDINGS, x, y, COLOUR_BLACK, nullptr);
-    y += lineHeight;
+    screenCoords.y += 4;
+    DrawTextBasic(dpi, screenCoords, STR_MUSIC_ACKNOWLEDGEMENTS_ORIGINAL_RECORDINGS, nullptr, { TextAlignment::CENTRE });
+    screenCoords.y += lineHeight;
 
     // Draw the separator
-    y += 5;
-    gfx_fill_rect_inset(dpi, 4, y, 484, y + 1, w->colours[1], INSET_RECT_FLAG_BORDER_INSET);
-    y += lineHeight + 1;
+    screenCoords.y += 5;
+    gfx_fill_rect_inset(dpi, { 4, screenCoords.y, 484, screenCoords.y + 1 }, w->colours[1], INSET_RECT_FLAG_BORDER_INSET);
+    screenCoords.y += lineHeight + 1;
 
     for (size_t i = 0; i < std::size(music_credits_rct2); i++)
     {
-        gfx_draw_string_centred(dpi, music_credits_rct2[i], x, y, COLOUR_BLACK, nullptr);
-        y += lineHeight;
+        DrawTextBasic(dpi, screenCoords, music_credits_rct2[i], nullptr, { TextAlignment::CENTRE });
+        screenCoords.y += lineHeight;
     }
 }

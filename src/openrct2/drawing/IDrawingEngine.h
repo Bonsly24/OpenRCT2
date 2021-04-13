@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (c) 2014-2019 OpenRCT2 developers
+ * Copyright (c) 2014-2020 OpenRCT2 developers
  *
  * For a complete list of all authors, please refer to contributors.md
  * Interested in contributing? Visit https://github.com/OpenRCT2/OpenRCT2
@@ -10,17 +10,18 @@
 #pragma once
 
 #include "../common.h"
+#include "./Weather.h"
 
 #include <memory>
 #include <string>
 
-enum DRAWING_ENGINE
+enum class DrawingEngine : int32_t
 {
-    DRAWING_ENGINE_NONE = -1,
-    DRAWING_ENGINE_SOFTWARE,
-    DRAWING_ENGINE_SOFTWARE_WITH_HARDWARE_DISPLAY,
-    DRAWING_ENGINE_OPENGL,
-    DRAWING_ENGINE_COUNT,
+    None = -1,
+    Software,
+    SoftwareWithHardwareDisplay,
+    OpenGL,
+    Count,
 };
 
 enum DRAWING_ENGINE_FLAGS
@@ -34,19 +35,18 @@ enum DRAWING_ENGINE_FLAGS
 };
 
 struct rct_drawpixelinfo;
-struct rct_palette_entry;
+struct GamePalette;
 
 namespace OpenRCT2::Ui
 {
-    interface IUiContext;
+    struct IUiContext;
 } // namespace OpenRCT2::Ui
 
 namespace OpenRCT2::Drawing
 {
-    enum class DRAWING_ENGINE_TYPE;
-    interface IDrawingContext;
+    struct IDrawingContext;
 
-    interface IDrawingEngine
+    struct IDrawingEngine
     {
         virtual ~IDrawingEngine()
         {
@@ -54,7 +54,7 @@ namespace OpenRCT2::Drawing
 
         virtual void Initialise() abstract;
         virtual void Resize(uint32_t width, uint32_t height) abstract;
-        virtual void SetPalette(const rct_palette_entry* colours) abstract;
+        virtual void SetPalette(const GamePalette& colours) abstract;
 
         virtual void SetVSync(bool vsync) abstract;
 
@@ -62,12 +62,11 @@ namespace OpenRCT2::Drawing
         virtual void BeginDraw() abstract;
         virtual void EndDraw() abstract;
         virtual void PaintWindows() abstract;
-        virtual void UpdateWindows() abstract;
-        virtual void PaintRain() abstract;
+        virtual void PaintWeather() abstract;
         virtual void CopyRect(int32_t x, int32_t y, int32_t width, int32_t height, int32_t dx, int32_t dy) abstract;
         virtual std::string Screenshot() abstract;
 
-        virtual IDrawingContext* GetDrawingContext(rct_drawpixelinfo * dpi) abstract;
+        virtual IDrawingContext* GetDrawingContext(rct_drawpixelinfo* dpi) abstract;
         virtual rct_drawpixelinfo* GetDrawingPixelInfo() abstract;
 
         virtual DRAWING_ENGINE_FLAGS GetFlags() abstract;
@@ -75,20 +74,22 @@ namespace OpenRCT2::Drawing
         virtual void InvalidateImage(uint32_t image) abstract;
     };
 
-    interface IDrawingEngineFactory
+    struct IDrawingEngineFactory
     {
         virtual ~IDrawingEngineFactory()
         {
         }
         virtual std::unique_ptr<IDrawingEngine> Create(
-            DRAWING_ENGINE_TYPE type, const std::shared_ptr<OpenRCT2::Ui::IUiContext>& uiContext) abstract;
+            DrawingEngine type, const std::shared_ptr<OpenRCT2::Ui::IUiContext>& uiContext) abstract;
     };
 
-    interface IRainDrawer
+    struct IWeatherDrawer
     {
-        virtual ~IRainDrawer()
+        virtual ~IWeatherDrawer()
         {
         }
-        virtual void Draw(int32_t x, int32_t y, int32_t width, int32_t height, int32_t xStart, int32_t yStart) abstract;
+        virtual void Draw(
+            int32_t x, int32_t y, int32_t width, int32_t height, int32_t xStart, int32_t yStart,
+            const uint8_t* weatherpattern) abstract;
     };
 } // namespace OpenRCT2::Drawing

@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (c) 2014-2019 OpenRCT2 developers
+ * Copyright (c) 2014-2020 OpenRCT2 developers
  *
  * For a complete list of all authors, please refer to contributors.md
  * Interested in contributing? Visit https://github.com/OpenRCT2/OpenRCT2
@@ -10,27 +10,32 @@
 #pragma once
 
 #include "../common.h"
+#include "../core/IStream.hpp"
+
+#include <memory>
 
 #define MIXER_VOLUME_MAX 128
 #define MIXER_LOOP_NONE 0
 #define MIXER_LOOP_INFINITE (-1)
 
-enum MIXER_GROUP
-{
-    MIXER_GROUP_SOUND,
-    MIXER_GROUP_RIDE_MUSIC,
-    MIXER_GROUP_TITLE_MUSIC,
-};
-
 namespace OpenRCT2::Audio
 {
-    interface IAudioSource;
-    interface IAudioChannel;
+    enum class SoundId : uint8_t;
+
+    enum class MixerGroup : int32_t
+    {
+        Sound,
+        RideMusic,
+        TitleMusic,
+    };
+
+    struct IAudioSource;
+    struct IAudioChannel;
 
     /**
      * Provides an audio stream by mixing multiple audio channels together.
      */
-    interface IAudioMixer
+    struct IAudioMixer
     {
         virtual ~IAudioMixer() = default;
 
@@ -38,12 +43,12 @@ namespace OpenRCT2::Audio
         virtual void Close() abstract;
         virtual void Lock() abstract;
         virtual void Unlock() abstract;
-        virtual IAudioChannel* Play(IAudioSource * source, int32_t loop, bool deleteondone, bool deletesourceondone) abstract;
-        virtual void Stop(IAudioChannel * channel) abstract;
+        virtual IAudioChannel* Play(IAudioSource* source, int32_t loop, bool deleteondone, bool deletesourceondone) abstract;
+        virtual void Stop(IAudioChannel* channel) abstract;
         virtual bool LoadMusic(size_t pathid) abstract;
         virtual void SetVolume(float volume) abstract;
 
-        virtual IAudioSource* GetSoundSource(int32_t id) abstract;
+        virtual IAudioSource* GetSoundSource(SoundId id) abstract;
         virtual IAudioSource* GetMusicSource(int32_t id) abstract;
     };
 } // namespace OpenRCT2::Audio
@@ -56,7 +61,8 @@ namespace OpenRCT2::Audio
 #endif
 
 void Mixer_Init(const char* device);
-void* Mixer_Play_Effect(size_t id, int32_t loop, int32_t volume, float pan, double rate, int32_t deleteondone);
+void* Mixer_Play_Effect(
+    OpenRCT2::Audio::SoundId id, int32_t loop, int32_t volume, float pan, double rate, int32_t deleteondone);
 void Mixer_Stop_Channel(void* channel);
 void Mixer_Channel_Volume(void* channel, int32_t volume);
 void Mixer_Channel_Pan(void* channel, float pan);
@@ -64,8 +70,10 @@ void Mixer_Channel_Rate(void* channel, double rate);
 int32_t Mixer_Channel_IsPlaying(void* channel);
 uint64_t Mixer_Channel_GetOffset(void* channel);
 int32_t Mixer_Channel_SetOffset(void* channel, uint64_t offset);
-void Mixer_Channel_SetGroup(void* channel, int32_t group);
+void Mixer_Channel_SetGroup(void* channel, OpenRCT2::Audio::MixerGroup group);
 void* Mixer_Play_Music(int32_t pathId, int32_t loop, int32_t streaming);
+void* Mixer_Play_Music(const char* path, int32_t loop);
+void* Mixer_Play_Music(std::unique_ptr<OpenRCT2::IStream> stream, int32_t loop);
 void Mixer_SetVolume(float volume);
 
 int32_t DStoMixerVolume(int32_t volume);

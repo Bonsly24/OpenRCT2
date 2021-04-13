@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (c) 2014-2019 OpenRCT2 developers
+ * Copyright (c) 2014-2020 OpenRCT2 developers
  *
  * For a complete list of all authors, please refer to contributors.md
  * Interested in contributing? Visit https://github.com/OpenRCT2/OpenRCT2
@@ -8,16 +8,15 @@
  *****************************************************************************/
 
 #ifdef _WIN32
-#    define WIN32_LEAN_AND_MEAN
 #    include <windows.h>
 #else
 #    include <sys/stat.h>
 #endif
 
-#include "../platform/platform.h"
+#include "../platform/Platform2.h"
 #include "../util/Util.h"
 #include "File.h"
-#include "FileStream.hpp"
+#include "FileStream.h"
 #include "String.hpp"
 
 #include <fstream>
@@ -26,7 +25,7 @@ namespace File
 {
     bool Exists(const std::string& path)
     {
-        return platform_file_exists(path.c_str());
+        return Platform::FileExists(path);
     }
 
     bool Copy(const std::string& srcPath, const std::string& dstPath, bool overwrite)
@@ -44,23 +43,22 @@ namespace File
         return platform_file_move(srcPath.c_str(), dstPath.c_str());
     }
 
-    std::vector<uint8_t> ReadAllBytes(const std::string_view& path)
+    std::vector<uint8_t> ReadAllBytes(std::string_view path)
     {
-        std::vector<uint8_t> result;
-
 #if defined(_WIN32) && !defined(__MINGW32__)
-        auto pathW = String::ToUtf16(std::string(path));
+        auto pathW = String::ToWideChar(path);
         std::ifstream fs(pathW, std::ios::in | std::ios::binary);
 #else
         std::ifstream fs(std::string(path), std::ios::in | std::ios::binary);
 #endif
         if (!fs.is_open())
         {
-            throw IOException("Unable to open " + std::string(path.data()));
+            throw IOException("Unable to open " + std::string(path));
         }
 
+        std::vector<uint8_t> result;
         fs.seekg(0, std::ios::end);
-        auto fsize = (size_t)fs.tellg();
+        auto fsize = static_cast<size_t>(fs.tellg());
         if (fsize > SIZE_MAX)
         {
             std::string message = String::StdFormat(
@@ -71,13 +69,13 @@ namespace File
         {
             result.resize(fsize);
             fs.seekg(0);
-            fs.read((char*)result.data(), result.size());
+            fs.read(reinterpret_cast<char*>(result.data()), result.size());
             fs.exceptions(fs.failbit);
         }
         return result;
     }
 
-    std::string ReadAllText(const std::string_view& path)
+    std::string ReadAllText(std::string_view path)
     {
         auto bytes = ReadAllBytes(path);
         // TODO skip BOM
@@ -86,17 +84,11 @@ namespace File
         return result;
     }
 
-    void WriteAllBytes(const std::string& path, const void* buffer, size_t length)
-    {
-        auto fs = FileStream(path, FILE_MODE_WRITE);
-        fs.Write(buffer, length);
-    }
-
-    std::vector<std::string> ReadAllLines(const std::string& path)
+    std::vector<std::string> ReadAllLines(std::string_view path)
     {
         std::vector<std::string> lines;
         auto data = ReadAllBytes(path);
-        auto lineStart = (const char*)data.data();
+        auto lineStart = reinterpret_cast<const char*>(data.data());
         auto ch = lineStart;
         char lastC = 0;
         for (size_t i = 0; i < data.size(); i++)
@@ -121,32 +113,15 @@ namespace File
         return lines;
     }
 
+    void WriteAllBytes(const std::string& path, const void* buffer, size_t length)
+    {
+        auto fs = OpenRCT2::FileStream(path, OpenRCT2::FILE_MODE_WRITE);
+        fs.Write(buffer, length);
+    }
+
     uint64_t GetLastModified(const std::string& path)
     {
-        uint64_t lastModified = 0;
-#ifdef _WIN32
-        auto pathW = utf8_to_widechar(path.c_str());
-        auto hFile = CreateFileW(pathW, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, 0, nullptr);
-        if (hFile != INVALID_HANDLE_VALUE)
-        {
-            FILETIME ftCreate, ftAccess, ftWrite;
-            if (GetFileTime(hFile, &ftCreate, &ftAccess, &ftWrite))
-            {
-                lastModified = ((uint64_t)ftWrite.dwHighDateTime << 32ULL) | (uint64_t)ftWrite.dwLowDateTime;
-            }
-            CloseHandle(hFile);
-        }
-        free(pathW);
-#else
-        struct stat statInfo
-        {
-        };
-        if (stat(path.c_str(), &statInfo) == 0)
-        {
-            lastModified = statInfo.st_mtime;
-        }
-#endif
-        return lastModified;
+        return Platform::GetLastModified(path);
     }
 } // namespace File
 

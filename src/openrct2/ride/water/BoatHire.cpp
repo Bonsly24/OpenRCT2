@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (c) 2014-2019 OpenRCT2 developers
+ * Copyright (c) 2014-2020 OpenRCT2 developers
  *
  * For a complete list of all authors, please refer to contributors.md
  * Interested in contributing? Visit https://github.com/OpenRCT2/OpenRCT2
@@ -39,18 +39,18 @@ static void paint_boat_hire_track_flat(
     if (direction & 1)
     {
         imageId = SPR_BOAT_HIRE_FLAT_BACK_NW_SE | session->TrackColours[SCHEME_TRACK];
-        sub_98197C(session, imageId, 0, 0, 1, 32, 3, height, 4, 0, height);
+        PaintAddImageAsParent(session, imageId, 0, 0, 1, 32, 3, height, 4, 0, height);
 
         imageId = SPR_BOAT_HIRE_FLAT_FRONT_NW_SE | session->TrackColours[SCHEME_TRACK];
-        sub_98197C(session, imageId, 0, 0, 1, 32, 3, height, 28, 0, height);
+        PaintAddImageAsParent(session, imageId, 0, 0, 1, 32, 3, height, 28, 0, height);
     }
     else
     {
         imageId = SPR_BOAT_HIRE_FLAT_BACK_SW_NE | session->TrackColours[SCHEME_TRACK];
-        sub_98197C(session, imageId, 0, 0, 32, 1, 3, height, 0, 4, height);
+        PaintAddImageAsParent(session, imageId, 0, 0, 32, 1, 3, height, 0, 4, height);
 
         imageId = SPR_BOAT_HIRE_FLAT_FRONT_SW_NE | session->TrackColours[SCHEME_TRACK];
-        sub_98197C(session, imageId, 0, 0, 32, 1, 3, height, 0, 28, height);
+        PaintAddImageAsParent(session, imageId, 0, 0, 32, 1, 3, height, 0, 28, height);
     }
 
     paint_util_set_segment_support_height(
@@ -63,21 +63,23 @@ static void paint_boat_hire_station(
     paint_session* session, ride_id_t rideIndex, uint8_t trackSequence, uint8_t direction, int32_t height,
     const TileElement* tileElement)
 {
-    LocationXY16 position = session->MapPosition;
-    Ride* ride = get_ride(rideIndex);
+    auto ride = get_ride(rideIndex);
+    if (ride == nullptr)
+        return;
+
     auto stationObj = ride_get_station_object(ride);
 
     if (direction & 1)
     {
-        paint_util_push_tunnel_right(session, height, TUNNEL_6);
+        paint_util_push_tunnel_right(session, height, TUNNEL_SQUARE_FLAT);
         track_paint_util_draw_pier(
-            session, ride, stationObj, position, direction, height, tileElement, session->CurrentRotation);
+            session, ride, stationObj, session->MapPosition, direction, height, tileElement, session->CurrentRotation);
     }
     else
     {
-        paint_util_push_tunnel_left(session, height, TUNNEL_6);
+        paint_util_push_tunnel_left(session, height, TUNNEL_SQUARE_FLAT);
         track_paint_util_draw_pier(
-            session, ride, stationObj, position, direction, height, tileElement, session->CurrentRotation);
+            session, ride, stationObj, session->MapPosition, direction, height, tileElement, session->CurrentRotation);
     }
 
     paint_util_set_segment_support_height(session, SEGMENTS_ALL, 0xFFFF, 0);
@@ -94,31 +96,31 @@ static void paint_boat_hire_track_left_quarter_turn_1_tile(
     {
         case 0:
             imageId = SPR_BOAT_HIRE_FLAT_QUARTER_TURN_1_TILE_BACK_SW_NW | session->TrackColours[SCHEME_TRACK];
-            sub_98197C(session, imageId, 0, 0, 32, 32, 0, height, 0, 0, height);
+            PaintAddImageAsParent(session, imageId, 0, 0, 32, 32, 0, height, 0, 0, height);
 
             imageId = SPR_BOAT_HIRE_FLAT_QUARTER_TURN_1_TILE_FRONT_SW_NW | session->TrackColours[SCHEME_TRACK];
-            sub_98197C(session, imageId, 0, 0, 3, 3, 3, height, 28, 28, height + 2);
+            PaintAddImageAsParent(session, imageId, 0, 0, 3, 3, 3, height, 28, 28, height + 2);
             break;
         case 1:
             imageId = SPR_BOAT_HIRE_FLAT_QUARTER_TURN_1_TILE_BACK_NW_NE | session->TrackColours[SCHEME_TRACK];
-            sub_98197C(session, imageId, 0, 0, 32, 32, 0, height, 0, 0, height);
+            PaintAddImageAsParent(session, imageId, 0, 0, 32, 32, 0, height, 0, 0, height);
 
             imageId = SPR_BOAT_HIRE_FLAT_QUARTER_TURN_1_TILE_FRONT_NW_NE | session->TrackColours[SCHEME_TRACK];
-            sub_98197C(session, imageId, 0, 0, 3, 3, 3, height, 28, 28, height + 2);
+            PaintAddImageAsParent(session, imageId, 0, 0, 3, 3, 3, height, 28, 28, height + 2);
             break;
         case 2:
             imageId = SPR_BOAT_HIRE_FLAT_QUARTER_TURN_1_TILE_BACK_NE_SE | session->TrackColours[SCHEME_TRACK];
-            sub_98197C(session, imageId, 0, 0, 32, 32, 0, height, 0, 0, height);
+            PaintAddImageAsParent(session, imageId, 0, 0, 32, 32, 0, height, 0, 0, height);
 
             imageId = SPR_BOAT_HIRE_FLAT_QUARTER_TURN_1_TILE_FRONT_NE_SE | session->TrackColours[SCHEME_TRACK];
-            sub_98197C(session, imageId, 0, 0, 3, 3, 3, height, 28, 28, height + 2);
+            PaintAddImageAsParent(session, imageId, 0, 0, 3, 3, 3, height, 28, 28, height + 2);
             break;
         case 3:
             imageId = SPR_BOAT_HIRE_FLAT_QUARTER_TURN_1_TILE_FRONT_SE_SW | session->TrackColours[SCHEME_TRACK];
-            sub_98197C(session, imageId, 0, 0, 3, 3, 3, height, 28, 28, height + 2);
+            PaintAddImageAsParent(session, imageId, 0, 0, 3, 3, 3, height, 28, 28, height + 2);
 
             imageId = SPR_BOAT_HIRE_FLAT_QUARTER_TURN_1_TILE_BACK_SE_SW | session->TrackColours[SCHEME_TRACK];
-            sub_98197C(session, imageId, 0, 0, 32, 32, 0, height, 0, 0, height);
+            PaintAddImageAsParent(session, imageId, 0, 0, 32, 32, 0, height, 0, 0, height);
             break;
     }
 
@@ -138,21 +140,21 @@ static void paint_boat_hire_track_right_quarter_turn_1_tile(
 /**
  * rct2: 0x008B0D60
  */
-TRACK_PAINT_FUNCTION get_track_paint_function_boat_hire(int32_t trackType, int32_t direction)
+TRACK_PAINT_FUNCTION get_track_paint_function_boat_hire(int32_t trackType)
 {
     switch (trackType)
     {
-        case TRACK_ELEM_FLAT:
+        case TrackElemType::Flat:
             return paint_boat_hire_track_flat;
 
-        case TRACK_ELEM_END_STATION:
-        case TRACK_ELEM_BEGIN_STATION:
-        case TRACK_ELEM_MIDDLE_STATION:
+        case TrackElemType::EndStation:
+        case TrackElemType::BeginStation:
+        case TrackElemType::MiddleStation:
             return paint_boat_hire_station;
 
-        case TRACK_ELEM_LEFT_QUARTER_TURN_1_TILE:
+        case TrackElemType::LeftQuarterTurn1Tile:
             return paint_boat_hire_track_left_quarter_turn_1_tile;
-        case TRACK_ELEM_RIGHT_QUARTER_TURN_1_TILE:
+        case TrackElemType::RightQuarterTurn1Tile:
             return paint_boat_hire_track_right_quarter_turn_1_tile;
     }
 

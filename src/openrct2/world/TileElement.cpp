@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (c) 2014-2019 OpenRCT2 developers
+ * Copyright (c) 2014-2020 OpenRCT2 developers
  *
  * For a complete list of all authors, please refer to contributors.md
  * Interested in contributing? Visit https://github.com/OpenRCT2/OpenRCT2
@@ -15,56 +15,8 @@
 #include "../ride/Track.h"
 #include "Banner.h"
 #include "LargeScenery.h"
+#include "Location.hpp"
 #include "Scenery.h"
-
-uint8_t TileElementBase::GetType() const
-{
-    return this->type & TILE_ELEMENT_TYPE_MASK;
-}
-
-void TileElementBase::SetType(uint8_t newType)
-{
-    this->type &= ~TILE_ELEMENT_TYPE_MASK;
-    this->type |= (newType & TILE_ELEMENT_TYPE_MASK);
-}
-
-uint8_t TileElementBase::GetDirection() const
-{
-    return this->type & TILE_ELEMENT_DIRECTION_MASK;
-}
-
-void TileElementBase::SetDirection(uint8_t direction)
-{
-    this->type &= ~TILE_ELEMENT_DIRECTION_MASK;
-    this->type |= (direction & TILE_ELEMENT_DIRECTION_MASK);
-}
-
-uint8_t TileElementBase::GetDirectionWithOffset(uint8_t offset) const
-{
-    return ((this->type & TILE_ELEMENT_DIRECTION_MASK) + offset) & TILE_ELEMENT_DIRECTION_MASK;
-}
-
-bool TileElementBase::IsLastForTile() const
-{
-    return (this->flags & TILE_ELEMENT_FLAG_LAST_TILE) != 0;
-}
-
-bool TileElementBase::IsGhost() const
-{
-    return (this->flags & TILE_ELEMENT_FLAG_GHOST) != 0;
-}
-
-void TileElementBase::SetGhost(bool isGhost)
-{
-    if (isGhost)
-    {
-        this->flags |= TILE_ELEMENT_FLAG_GHOST;
-    }
-    else
-    {
-        this->flags &= ~TILE_ELEMENT_FLAG_GHOST;
-    }
-}
 
 bool tile_element_is_underground(TileElement* tileElement)
 {
@@ -77,43 +29,43 @@ bool tile_element_is_underground(TileElement* tileElement)
     return true;
 }
 
-BannerIndex tile_element_get_banner_index(TileElement* tileElement)
+BannerIndex TileElement::GetBannerIndex() const
 {
     rct_scenery_entry* sceneryEntry;
 
-    switch (tileElement->GetType())
+    switch (GetType())
     {
         case TILE_ELEMENT_TYPE_LARGE_SCENERY:
-            sceneryEntry = tileElement->AsLargeScenery()->GetEntry();
-            if (sceneryEntry->large_scenery.scrolling_mode == SCROLLING_MODE_NONE)
+            sceneryEntry = AsLargeScenery()->GetEntry();
+            if (sceneryEntry == nullptr || sceneryEntry->large_scenery.scrolling_mode == SCROLLING_MODE_NONE)
                 return BANNER_INDEX_NULL;
 
-            return tileElement->AsLargeScenery()->GetBannerIndex();
+            return AsLargeScenery()->GetBannerIndex();
         case TILE_ELEMENT_TYPE_WALL:
-            sceneryEntry = tileElement->AsWall()->GetEntry();
+            sceneryEntry = AsWall()->GetEntry();
             if (sceneryEntry == nullptr || sceneryEntry->wall.scrolling_mode == SCROLLING_MODE_NONE)
                 return BANNER_INDEX_NULL;
 
-            return tileElement->AsWall()->GetBannerIndex();
+            return AsWall()->GetBannerIndex();
         case TILE_ELEMENT_TYPE_BANNER:
-            return tileElement->AsBanner()->GetIndex();
+            return AsBanner()->GetIndex();
         default:
             return BANNER_INDEX_NULL;
     }
 }
 
-void tile_element_set_banner_index(TileElement* tileElement, BannerIndex bannerIndex)
+void TileElement::SetBannerIndex(BannerIndex bannerIndex)
 {
-    switch (tileElement->GetType())
+    switch (GetType())
     {
         case TILE_ELEMENT_TYPE_WALL:
-            tileElement->AsWall()->SetBannerIndex(bannerIndex);
+            AsWall()->SetBannerIndex(bannerIndex);
             break;
         case TILE_ELEMENT_TYPE_LARGE_SCENERY:
-            tileElement->AsLargeScenery()->SetBannerIndex(bannerIndex);
+            AsLargeScenery()->SetBannerIndex(bannerIndex);
             break;
         case TILE_ELEMENT_TYPE_BANNER:
-            tileElement->AsBanner()->SetIndex(bannerIndex);
+            AsBanner()->SetIndex(bannerIndex);
             break;
         default:
             log_error("Tried to set banner index on unsuitable tile element!");
@@ -121,32 +73,27 @@ void tile_element_set_banner_index(TileElement* tileElement, BannerIndex bannerI
     }
 }
 
-void tile_element_remove_banner_entry(TileElement* tileElement)
+void TileElement::RemoveBannerEntry()
 {
-    BannerIndex bannerIndex = tile_element_get_banner_index(tileElement);
-    if (bannerIndex == BANNER_INDEX_NULL)
-        return;
-
-    rct_banner* banner = &gBanners[bannerIndex];
-    if (banner->type != BANNER_NULL)
+    auto bannerIndex = GetBannerIndex();
+    auto banner = GetBanner(bannerIndex);
+    if (banner != nullptr)
     {
-        rct_windownumber windowNumber = bannerIndex;
-        window_close_by_number(WC_BANNER, windowNumber);
-        banner->type = BANNER_NULL;
-        user_string_free(banner->string_idx);
+        window_close_by_number(WC_BANNER, bannerIndex);
+        *banner = {};
     }
 }
 
-uint8_t tile_element_get_ride_index(const TileElement* tileElement)
+ride_id_t TileElement::GetRideIndex() const
 {
-    switch (tileElement->GetType())
+    switch (GetType())
     {
         case TILE_ELEMENT_TYPE_TRACK:
-            return tileElement->AsTrack()->GetRideIndex();
+            return AsTrack()->GetRideIndex();
         case TILE_ELEMENT_TYPE_ENTRANCE:
-            return tileElement->AsEntrance()->GetRideIndex();
+            return AsEntrance()->GetRideIndex();
         case TILE_ELEMENT_TYPE_PATH:
-            return tileElement->AsPath()->GetRideIndex();
+            return AsPath()->GetRideIndex();
         default:
             return RIDE_ID_NULL;
     }
@@ -155,15 +102,12 @@ uint8_t tile_element_get_ride_index(const TileElement* tileElement)
 void TileElement::ClearAs(uint8_t newType)
 {
     type = newType;
-    flags = 0;
-    base_height = 2;
-    clearance_height = 2;
-    std::fill_n(pad_04, sizeof(pad_04), 0x00);
-}
-
-void TileElementBase::Remove()
-{
-    tile_element_remove((TileElement*)this);
+    Flags = 0;
+    base_height = MINIMUM_LAND_HEIGHT;
+    clearance_height = MINIMUM_LAND_HEIGHT;
+    owner = 0;
+    std::fill_n(pad_05, sizeof(pad_05), 0x00);
+    std::fill_n(pad_08, sizeof(pad_08), 0x00);
 }
 
 // Rotate both of the values amount
@@ -173,7 +117,6 @@ const QuarterTile QuarterTile::Rotate(uint8_t amount) const
     {
         case 0:
             return QuarterTile{ *this };
-            break;
         case 1:
         {
             auto rotVal1 = _val << 1;

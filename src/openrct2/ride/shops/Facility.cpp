@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (c) 2014-2019 OpenRCT2 developers
+ * Copyright (c) 2014-2020 OpenRCT2 developers
  *
  * For a complete list of all authors, please refer to contributors.md
  * Interested in contributing? Visit https://github.com/OpenRCT2/OpenRCT2
@@ -29,21 +29,17 @@ static void facility_paint_setup(
     bool hasSupports = wooden_a_supports_paint_setup(
         session, direction & 1, 0, height, session->TrackColours[SCHEME_3], nullptr);
 
-    Ride* ride = get_ride(rideIndex);
-    rct_ride_entry* rideEntry = get_ride_entry(ride->subtype);
+    auto ride = get_ride(rideIndex);
+    if (ride == nullptr)
+        return;
 
+    auto rideEntry = ride->GetRideEntry();
     if (rideEntry == nullptr)
-    {
-        log_error("Error drawing facility, rideEntry is NULL.");
         return;
-    }
 
-    rct_ride_entry_vehicle* firstVehicleEntry = &rideEntry->vehicles[0];
+    auto firstVehicleEntry = &rideEntry->vehicles[0];
     if (firstVehicleEntry == nullptr)
-    {
-        log_error("Error drawing facility, firstVehicleEntry is NULL.");
         return;
-    }
 
     uint32_t imageId = session->TrackColours[SCHEME_TRACK];
     imageId |= firstVehicleEntry->base_image_id;
@@ -55,18 +51,18 @@ static void facility_paint_setup(
     {
         uint32_t foundationImageId = ((direction & 1) ? SPR_FLOOR_PLANKS_90_DEG : SPR_FLOOR_PLANKS)
             | session->TrackColours[SCHEME_3];
-        sub_98197C(
+        PaintAddImageAsParent(
             session, foundationImageId, 0, 0, lengthX, lengthY, 29, height, direction == 3 ? 28 : 2, direction == 0 ? 28 : 2,
             height);
 
         // Door image or base
-        sub_98199C(
+        PaintAddImageAsChild(
             session, imageId, 0, 0, lengthX, lengthY, 29, height, direction == 3 ? 28 : 2, direction == 0 ? 28 : 2, height);
     }
     else
     {
         // Door image or base
-        sub_98197C(
+        PaintAddImageAsParent(
             session, imageId, 0, 0, lengthX, lengthY, 29, height, direction == 3 ? 28 : 2, direction == 0 ? 28 : 2, height);
     }
 
@@ -74,12 +70,12 @@ static void facility_paint_setup(
     if (direction == 1)
     {
         imageId += 2;
-        sub_98197C(session, imageId, 0, 0, 2, 28, 29, height, 28, 2, height);
+        PaintAddImageAsParent(session, imageId, 0, 0, 2, 28, 29, height, 28, 2, height);
     }
     else if (direction == 2)
     {
         imageId += 4;
-        sub_98197C(session, imageId, 0, 0, 28, 2, 29, height, 2, 28, height);
+        PaintAddImageAsParent(session, imageId, 0, 0, 28, 2, 29, height, 2, 28, height);
     }
 
     paint_util_set_segment_support_height(session, SEGMENTS_ALL, 0xFFFF, 0);
@@ -87,11 +83,11 @@ static void facility_paint_setup(
 }
 
 /* 0x00762D44 */
-TRACK_PAINT_FUNCTION get_track_paint_function_facility(int32_t trackType, int32_t direction)
+TRACK_PAINT_FUNCTION get_track_paint_function_facility(int32_t trackType)
 {
     switch (trackType)
     {
-        case FLAT_TRACK_ELEM_1_X_1_A:
+        case TrackElemType::FlatTrack1x1A:
             return facility_paint_setup;
     }
     return nullptr;

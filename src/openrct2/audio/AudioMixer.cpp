@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (c) 2014-2019 OpenRCT2 developers
+ * Copyright (c) 2014-2020 OpenRCT2 developers
  *
  * For a complete list of all authors, please refer to contributors.md
  * Interested in contributing? Visit https://github.com/OpenRCT2/OpenRCT2
@@ -37,12 +37,12 @@ void Mixer_Init(const char* device)
     audioContext->SetOutputDevice(std::string(device));
 }
 
-void* Mixer_Play_Effect(size_t id, int32_t loop, int32_t volume, float pan, double rate, int32_t deleteondone)
+void* Mixer_Play_Effect(SoundId id, int32_t loop, int32_t volume, float pan, double rate, int32_t deleteondone)
 {
     IAudioChannel* channel = nullptr;
     if (gConfigSound.sound_enabled)
     {
-        if (id >= SOUND_MAXID)
+        if (static_cast<uint32_t>(id) >= RCT2SoundCount)
         {
             log_error("Tried to play an invalid sound id. %i", id);
         }
@@ -52,7 +52,7 @@ void* Mixer_Play_Effect(size_t id, int32_t loop, int32_t volume, float pan, doub
             if (mixer != nullptr)
             {
                 mixer->Lock();
-                IAudioSource* source = mixer->GetSoundSource((int32_t)id);
+                IAudioSource* source = mixer->GetSoundSource(id);
                 channel = mixer->Play(source, loop, deleteondone != 0, false);
                 if (channel != nullptr)
                 {
@@ -124,9 +124,31 @@ int32_t Mixer_Channel_SetOffset(void* channel, uint64_t offset)
     return static_cast<IAudioChannel*>(channel)->SetOffset(offset);
 }
 
-void Mixer_Channel_SetGroup(void* channel, int32_t group)
+void Mixer_Channel_SetGroup(void* channel, MixerGroup group)
 {
     static_cast<IAudioChannel*>(channel)->SetGroup(group);
+}
+
+template<typename T> static void* PlayMusic(T&& src, int32_t loop)
+{
+    auto* mixer = GetMixer();
+    if (mixer == nullptr)
+        return nullptr;
+
+    auto audioContext = GetContext()->GetAudioContext();
+    auto stream = audioContext->CreateStreamFromWAV(std::forward<T&&>(src));
+    if (stream == nullptr)
+        return nullptr;
+
+    auto* channel = mixer->Play(stream, loop, false, true);
+    if (channel == nullptr)
+    {
+        delete stream;
+        return nullptr;
+    }
+
+    channel->SetGroup(MixerGroup::RideMusic);
+    return channel;
 }
 
 void* Mixer_Play_Music(int32_t pathId, int32_t loop, int32_t streaming)
@@ -161,9 +183,19 @@ void* Mixer_Play_Music(int32_t pathId, int32_t loop, int32_t streaming)
     }
     if (channel != nullptr)
     {
-        channel->SetGroup(MIXER_GROUP_RIDE_MUSIC);
+        channel->SetGroup(MixerGroup::RideMusic);
     }
     return channel;
+}
+
+void* Mixer_Play_Music(const char* path, int32_t loop)
+{
+    return PlayMusic(path, loop);
+}
+
+void* Mixer_Play_Music(std::unique_ptr<IStream> stream, int32_t loop)
+{
+    return PlayMusic(std::move(stream), loop);
 }
 
 void Mixer_SetVolume(float volume)
@@ -173,15 +205,15 @@ void Mixer_SetVolume(float volume)
 
 int32_t DStoMixerVolume(int32_t volume)
 {
-    return (int32_t)(MIXER_VOLUME_MAX * (std::pow(10.0f, (float)volume / 2000)));
+    return static_cast<int32_t>(MIXER_VOLUME_MAX * (std::pow(10.0f, static_cast<float>(volume) / 2000)));
 }
 
 float DStoMixerPan(int32_t pan)
 {
-    return (((float)pan + -DSBPAN_LEFT) / DSBPAN_RIGHT) / 2;
+    return ((static_cast<float>(pan) + -DSBPAN_LEFT) / DSBPAN_RIGHT) / 2;
 }
 
 double DStoMixerRate(int32_t frequency)
 {
-    return (double)frequency / 22050;
+    return static_cast<double>(frequency) / 22050;
 }

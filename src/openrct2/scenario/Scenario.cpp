@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (c) 2014-2019 OpenRCT2 developers
+ * Copyright (c) 2014-2020 OpenRCT2 developers
  *
  * For a complete list of all authors, please refer to contributors.md
  * Interested in contributing? Visit https://github.com/OpenRCT2/OpenRCT2
@@ -18,6 +18,7 @@
 #include "../ParkImporter.h"
 #include "../audio/audio.h"
 #include "../config/Config.h"
+#include "../core/Guard.hpp"
 #include "../core/Random.hpp"
 #include "../interface/Viewport.h"
 #include "../localisation/Date.h"
@@ -49,6 +50,7 @@
 #include "ScenarioSources.h"
 
 #include <algorithm>
+#include <bitset>
 
 const rct_string_id ScenarioCategoryStringIds[SCENARIO_CATEGORY_COUNT] = {
     STR_BEGINNER_PARKS, STR_CHALLENGING_PARKS,    STR_EXPERT_PARKS, STR_REAL_PARKS, STR_OTHER_PARKS,
@@ -69,18 +71,15 @@ uint32_t gLastAutoSaveUpdate = 0;
 uint32_t gScenarioTicks;
 random_engine_t gScenarioRand;
 
-uint8_t gScenarioObjectiveType;
-uint8_t gScenarioObjectiveYear;
-uint16_t gScenarioObjectiveNumGuests;
-money32 gScenarioObjectiveCurrency;
+Objective gScenarioObjective;
 
+bool gAllowEarlyCompletionInNetworkPlay;
 uint16_t gScenarioParkRatingWarningDays;
 money32 gScenarioCompletedCompanyValue;
 money32 gScenarioCompanyValueRecord;
 
 char gScenarioFileName[MAX_PATH];
 
-static int32_t scenario_create_ducks();
 static void scenario_objective_check();
 
 using namespace OpenRCT2;
@@ -98,8 +97,8 @@ void scenario_begin()
         gParkFlags |= PARK_FLAGS_NO_MONEY;
     research_reset_current_item();
     scenery_set_default_placement_configuration();
-    news_item_init_queue();
-    if (gScenarioObjectiveType != OBJECTIVE_NONE && !gLoadKeepWindowsOpen)
+    News::InitQueue();
+    if (gScenarioObjective.Type != OBJECTIVE_NONE && !gLoadKeepWindowsOpen)
         context_open_window_view(WV_PARK_OBJECTIVE);
 
     auto& park = GetContext()->GetGameState()->GetPark();
@@ -114,7 +113,7 @@ void scenario_begin()
 
     {
         utf8 normalisedName[64];
-        scenario_normalise_name(normalisedName, sizeof(normalisedName), gS6Info.name);
+        ScenarioSources::NormaliseName(normalisedName, sizeof(normalisedName), gS6Info.name);
 
         rct_string_id localisedStringIds[3];
         if (language_get_localised_scenario_strings(normalisedName, localisedStringIds))
@@ -125,7 +124,7 @@ void scenario_begin()
             }
             if (localisedStringIds[1] != STR_NONE)
             {
-                park_set_name(language_get_string(localisedStringIds[1]));
+                park.Name = language_get_string(localisedStringIds[1]);
             }
             if (localisedStringIds[2] != STR_NONE)
             {
@@ -135,12 +134,9 @@ void scenario_begin()
     }
 
     // Set the last saved game path
-    char parkName[128];
-    format_string(parkName, 128, gParkName, &gParkNameArgs);
-
     char savePath[MAX_PATH];
     platform_get_user_directory(savePath, "save", sizeof(savePath));
-    safe_strcat_path(savePath, parkName, sizeof(savePath));
+    safe_strcat_path(savePath, park.Name.c_str(), sizeof(savePath));
     path_append_extension(savePath, ".sv6", sizeof(savePath));
     gScenarioSavePath = savePath;
 
@@ -160,7 +156,7 @@ void scenario_begin()
     duck_remove_all();
     park_calculate_size();
     map_count_remaining_land_rights();
-    staff_reset_stats();
+    Staff::ResetStats();
     gLastEntranceStyle = 0;
     gMarketingCampaigns.clear();
     gParkRatingCasualtyPenalty = 0;
@@ -179,6 +175,7 @@ void scenario_begin()
 
 static void scenario_end()
 {
+    game_reset_speed();
     window_close_by_class(WC_DROPDOWN);
     window_close_all_except_flags(WF_STICK_TO_BACK | WF_STICK_TO_FRONT);
     context_open_window_view(WV_PARK_OBJECTIVE);
@@ -190,7 +187,7 @@ static void scenario_end()
  */
 void scenario_failure()
 {
-    gScenarioCompletedCompanyValue = 0x80000001;
+    gScenarioCompletedCompanyValue = COMPANY_VALUE_ON_FAILED_OBJECTIVE;
     scenario_end();
 }
 
@@ -247,7 +244,7 @@ static void scenario_entrance_fee_too_high_check()
             uint32_t packed_xy = (y << 16) | x;
             if (gConfigNotifications.park_warnings)
             {
-                news_item_add_to_queue(NEWS_ITEM_BLANK, STR_ENTRANCE_FEE_TOO_HI, packed_xy);
+                News::AddItemToQueue(News::ItemType::Blank, STR_ENTRANCE_FEE_TOO_HI, packed_xy, {});
             }
         }
     }
@@ -292,17 +289,17 @@ static void scenario_day_update()
 {
     finance_update_daily_profit();
     peep_update_days_in_queue();
-    switch (gScenarioObjectiveType)
+    switch (gScenarioObjective.Type)
     {
         case OBJECTIVE_10_ROLLERCOASTERS:
         case OBJECTIVE_GUESTS_AND_RATING:
         case OBJECTIVE_10_ROLLERCOASTERS_LENGTH:
         case OBJECTIVE_FINISH_5_ROLLERCOASTERS:
-        case OBJECTIVE_REPLAY_LOAN_AND_PARK_VALUE:
+        case OBJECTIVE_REPAY_LOAN_AND_PARK_VALUE:
             scenario_objective_check();
             break;
         default:
-            if (gConfigGeneral.allow_early_completion)
+            if (AllowEarlyCompletion())
                 scenario_objective_check();
             break;
     }
@@ -327,7 +324,7 @@ static void scenario_week_update()
     ride_check_all_reachable();
     ride_update_favourited_stat();
 
-    auto water_type = (rct_water_type*)object_entry_get_chunk(OBJECT_TYPE_WATER, 0);
+    auto water_type = static_cast<rct_water_type*>(object_entry_get_chunk(ObjectType::Water, 0));
 
     if (month <= MONTH_APRIL && water_type != nullptr && water_type->flags & WATER_FLAGS_ALLOW_DUCKS)
     {
@@ -360,7 +357,7 @@ static void scenario_update_daynight_cycle()
 
     if (gScreenFlags == SCREEN_FLAGS_PLAYING && gConfigGeneral.day_night_cycle)
     {
-        float monthFraction = gDateMonthTicks / (float)0x10000;
+        float monthFraction = gDateMonthTicks / static_cast<float>(TICKS_PER_MONTH);
         if (monthFraction < (1 / 8.0f))
         {
             gDayNightCycle = 0.0f;
@@ -417,63 +414,74 @@ void scenario_update()
     }
     scenario_update_daynight_cycle();
 }
-
 /**
  *
  *  rct2: 0x006744A9
  */
-static int32_t scenario_create_ducks()
+bool scenario_create_ducks()
 {
-    int32_t i, j, r, c, x, y, waterZ, centreWaterZ, x2, y2;
+    // Check NxN area around centre tile defined by SquareSize
+    constexpr int32_t SquareSize = 7;
+    constexpr int32_t SquareCentre = SquareSize / 2;
+    constexpr int32_t SquareRadiusSize = SquareCentre * 32;
 
-    r = scenario_rand();
-    x = ((r >> 16) & 0xFFFF) & 0x7F;
-    y = (r & 0xFFFF) & 0x7F;
-    x = (x + 64) * 32;
-    y = (y + 64) * 32;
+    CoordsXY centrePos;
+    centrePos.x = SquareRadiusSize + (scenario_rand_max(MAXIMUM_MAP_SIZE_TECHNICAL - SquareCentre) * 32);
+    centrePos.y = SquareRadiusSize + (scenario_rand_max(MAXIMUM_MAP_SIZE_TECHNICAL - SquareCentre) * 32);
 
-    if (!map_is_location_in_park({ x, y }))
-        return 0;
+    Guard::Assert(map_is_location_valid(centrePos));
 
-    centreWaterZ = (tile_element_water_height(x, y));
+    if (!map_is_location_in_park(centrePos))
+        return false;
+
+    int32_t centreWaterZ = (tile_element_water_height(centrePos));
     if (centreWaterZ == 0)
-        return 0;
+        return false;
 
-    // Check 7x7 area around centre tile
-    x2 = x - (32 * 3);
-    y2 = y - (32 * 3);
-    c = 0;
-    for (i = 0; i < 7; i++)
+    CoordsXY innerPos{ centrePos.x - (32 * SquareCentre), centrePos.y - (32 * SquareCentre) };
+    int32_t waterTiles = 0;
+    for (int32_t y = 0; y < SquareSize; y++)
     {
-        for (j = 0; j < 7; j++)
+        for (int32_t x = 0; x < SquareSize; x++)
         {
-            waterZ = (tile_element_water_height(x2, y2));
-            if (waterZ == centreWaterZ)
-                c++;
+            if (!map_is_location_valid(innerPos))
+                continue;
 
-            x2 += 32;
+            if (!map_is_location_in_park(innerPos))
+                continue;
+
+            int32_t waterZ = (tile_element_water_height(innerPos));
+            if (waterZ == centreWaterZ)
+                waterTiles++;
+
+            innerPos.x += 32;
         }
-        x2 -= 224;
-        y2 += 32;
+        innerPos.x -= SquareSize * 32;
+        innerPos.y += 32;
     }
 
     // Must be at least 25 water tiles of the same height in 7x7 area
-    if (c < 25)
-        return 0;
+    if (waterTiles < 25)
+        return false;
 
     // Set x, y to the centre of the tile
-    x += 16;
-    y += 16;
-    c = (scenario_rand() & 3) + 2;
-    for (i = 0; i < c; i++)
+    centrePos.x += 16;
+    centrePos.y += 16;
+
+    uint32_t duckCount = (scenario_rand() % 4) + 2;
+    for (uint32_t i = 0; i < duckCount; i++)
     {
-        r = scenario_rand();
-        x2 = (r >> 16) & 0x7F;
-        y2 = (r & 0xFFFF) & 0x7F;
-        create_duck(x + x2 - 64, y + y2 - 64);
+        uint32_t r = scenario_rand();
+        innerPos.x = (r >> 16) % SquareRadiusSize;
+        innerPos.y = (r & 0xFFFF) % SquareRadiusSize;
+
+        CoordsXY targetPos{ centrePos.x + innerPos.x - SquareRadiusSize, centrePos.y + innerPos.y - SquareRadiusSize };
+
+        Guard::Assert(map_is_location_valid(targetPos));
+        create_duck(targetPos);
     }
 
-    return 1;
+    return true;
 }
 
 const random_engine_t::state_type& scenario_rand_state()
@@ -504,7 +512,7 @@ uint32_t scenario_rand_max(uint32_t max)
         return 0;
     if ((max & (max - 1)) == 0)
         return scenario_rand() & (max - 1);
-    uint32_t rand, cap = ~((uint32_t)0) - (~((uint32_t)0) % max) - 1;
+    uint32_t rand, cap = ~(static_cast<uint32_t>(0)) - (~(static_cast<uint32_t>(0)) % max) - 1;
     do
     {
         rand = scenario_rand();
@@ -518,25 +526,24 @@ uint32_t scenario_rand_max(uint32_t max)
  */
 static bool scenario_prepare_rides_for_save()
 {
-    int32_t isFiveCoasterObjective = gScenarioObjectiveType == OBJECTIVE_FINISH_5_ROLLERCOASTERS;
-    int32_t i;
-    Ride* ride;
+    int32_t isFiveCoasterObjective = gScenarioObjective.Type == OBJECTIVE_FINISH_5_ROLLERCOASTERS;
     uint8_t rcs = 0;
 
-    FOR_ALL_RIDES (i, ride)
+    for (auto& ride : GetRideManager())
     {
-        const rct_ride_entry* rideEntry = get_ride_entry(ride->subtype);
-
-        // If there are more than 5 roller coasters, only mark the first five.
-        if (isFiveCoasterObjective && rideEntry != nullptr
-            && (ride_entry_has_category(rideEntry, RIDE_CATEGORY_ROLLERCOASTER) && rcs < 5))
+        const auto* rideEntry = ride.GetRideEntry();
+        if (rideEntry != nullptr)
         {
-            ride->lifecycle_flags |= RIDE_LIFECYCLE_INDESTRUCTIBLE_TRACK;
-            rcs++;
-        }
-        else
-        {
-            ride->lifecycle_flags &= ~RIDE_LIFECYCLE_INDESTRUCTIBLE_TRACK;
+            // If there are more than 5 roller coasters, only mark the first five.
+            if (isFiveCoasterObjective && (ride_entry_has_category(rideEntry, RIDE_CATEGORY_ROLLERCOASTER) && rcs < 5))
+            {
+                ride.lifecycle_flags |= RIDE_LIFECYCLE_INDESTRUCTIBLE_TRACK;
+                rcs++;
+            }
+            else
+            {
+                ride.lifecycle_flags &= ~RIDE_LIFECYCLE_INDESTRUCTIBLE_TRACK;
+            }
         }
     }
 
@@ -557,7 +564,7 @@ static bool scenario_prepare_rides_for_save()
 
             if (isFiveCoasterObjective)
             {
-                ride = get_ride(it.element->AsTrack()->GetRideIndex());
+                auto ride = get_ride(it.element->AsTrack()->GetRideIndex());
 
                 // In the previous step, this flag was set on the first five roller coasters.
                 if (ride != nullptr && ride->lifecycle_flags & RIDE_LIFECYCLE_INDESTRUCTIBLE_TRACK)
@@ -579,15 +586,17 @@ static bool scenario_prepare_rides_for_save()
  */
 bool scenario_prepare_for_save()
 {
+    auto& park = GetContext()->GetGameState()->GetPark();
+    auto parkName = park.Name.c_str();
+
     gS6Info.entry.flags = 255;
-
     if (gS6Info.name[0] == 0)
-        format_string(gS6Info.name, 64, gParkName, &gParkNameArgs);
+        String::Set(gS6Info.name, sizeof(gS6Info.name), parkName);
 
-    gS6Info.objective_type = gScenarioObjectiveType;
-    gS6Info.objective_arg_1 = gScenarioObjectiveYear;
-    gS6Info.objective_arg_2 = gScenarioObjectiveCurrency;
-    gS6Info.objective_arg_3 = gScenarioObjectiveNumGuests;
+    gS6Info.objective_type = gScenarioObjective.Type;
+    gS6Info.objective_arg_1 = gScenarioObjective.Year;
+    gS6Info.objective_arg_2 = gScenarioObjective.Currency;
+    gS6Info.objective_arg_3 = gScenarioObjective.NumGuests;
 
     // This can return false if the goal is 'Finish 5 roller coaster' and there are too few.
     if (!scenario_prepare_rides_for_save())
@@ -595,7 +604,7 @@ bool scenario_prepare_for_save()
         return false;
     }
 
-    if (gScenarioObjectiveType == OBJECTIVE_GUESTS_AND_RATING)
+    if (gScenarioObjective.Type == OBJECTIVE_GUESTS_AND_RATING)
         gParkFlags |= PARK_FLAGS_PARK_OPEN;
 
     // Fix #2385: saved scenarios did not initialise temperatures to selected climate
@@ -606,11 +615,28 @@ bool scenario_prepare_for_save()
 
 /**
  * Modifies the given S6 data so that ghost elements, rides with no track elements or unused banners / user strings are saved.
- *
- * TODO: This employs some black casting magic that should go away once we export to our own format instead of SV6.
  */
 void scenario_fix_ghosts(rct_s6_data* s6)
 {
+    // Build tile pointer cache (needed to get the first element at a certain location)
+    RCT12TileElement* tilePointers[MAX_TILE_TILE_ELEMENT_POINTERS];
+    for (size_t i = 0; i < MAX_TILE_TILE_ELEMENT_POINTERS; i++)
+    {
+        tilePointers[i] = TILE_UNDEFINED_TILE_ELEMENT;
+    }
+
+    RCT12TileElement* tileElement = s6->tile_elements;
+    RCT12TileElement** tile = tilePointers;
+    for (size_t y = 0; y < MAXIMUM_MAP_SIZE_TECHNICAL; y++)
+    {
+        for (size_t x = 0; x < MAXIMUM_MAP_SIZE_TECHNICAL; x++)
+        {
+            *tile++ = tileElement;
+            while (!(tileElement++)->IsLastForTile())
+                ;
+        }
+    }
+
     // Remove all ghost elements
     RCT12TileElement* destinationElement = s6->tile_elements;
 
@@ -618,18 +644,19 @@ void scenario_fix_ghosts(rct_s6_data* s6)
     {
         for (int32_t x = 0; x < MAXIMUM_MAP_SIZE_TECHNICAL; x++)
         {
-            RCT12TileElement* originalElement = reinterpret_cast<RCT12TileElement*>(map_get_first_element_at(x, y));
+            // This is the equivalent of map_get_first_element_at(x, y), but on S6 data.
+            RCT12TileElement* originalElement = tilePointers[x + y * MAXIMUM_MAP_SIZE_TECHNICAL];
             do
             {
                 if (originalElement->IsGhost())
                 {
-                    BannerIndex bannerIndex = tile_element_get_banner_index(reinterpret_cast<TileElement*>(originalElement));
-                    if (bannerIndex != BANNER_INDEX_NULL)
+                    uint8_t bannerIndex = originalElement->GetBannerIndex();
+                    if (bannerIndex != RCT12_BANNER_INDEX_NULL)
                     {
-                        rct_banner* banner = &s6->banners[bannerIndex];
-                        if (banner->type != BANNER_NULL)
+                        auto banner = &s6->banners[bannerIndex];
+                        if (banner->type != RCT12_OBJECT_ENTRY_INDEX_NULL)
                         {
-                            banner->type = BANNER_NULL;
+                            banner->type = RCT12_OBJECT_ENTRY_INDEX_NULL;
                             if (is_user_string_id(banner->string_idx))
                                 s6->custom_strings[(banner->string_idx % RCT12_MAX_USER_STRINGS)][0] = 0;
                         }
@@ -647,14 +674,28 @@ void scenario_fix_ghosts(rct_s6_data* s6)
     }
 }
 
+static void ride_all_has_any_track_elements(std::array<bool, RCT12_MAX_RIDES_IN_PARK>& rideIndexArray)
+{
+    tile_element_iterator it;
+    tile_element_iterator_begin(&it);
+    while (tile_element_iterator_next(&it))
+    {
+        if (it.element->GetType() != TILE_ELEMENT_TYPE_TRACK)
+            continue;
+        if (it.element->IsGhost())
+            continue;
+
+        rideIndexArray[it.element->AsTrack()->GetRideIndex()] = true;
+    }
+}
+
 void scenario_remove_trackless_rides(rct_s6_data* s6)
 {
-    bool rideHasTrack[MAX_RIDES];
+    std::array<bool, RCT12_MAX_RIDES_IN_PARK> rideHasTrack{};
     ride_all_has_any_track_elements(rideHasTrack);
     for (int32_t i = 0; i < RCT12_MAX_RIDES_IN_PARK; i++)
     {
-        rct2_ride* ride = &s6->rides[i];
-
+        auto ride = &s6->rides[i];
         if (rideHasTrack[i] || ride->type == RIDE_TYPE_NULL)
         {
             continue;
@@ -668,45 +709,45 @@ void scenario_remove_trackless_rides(rct_s6_data* s6)
     }
 }
 
-static void scenario_objective_check_guests_by()
+ObjectiveStatus Objective::CheckGuestsBy() const
 {
-    uint8_t objectiveYear = gScenarioObjectiveYear;
     int16_t parkRating = gParkRating;
-    int16_t guestsInPark = gNumGuestsInPark;
-    int16_t objectiveGuests = gScenarioObjectiveNumGuests;
-    int16_t currentMonthYear = gDateMonthsElapsed;
+    int32_t currentMonthYear = gDateMonthsElapsed;
 
-    if (currentMonthYear == MONTH_COUNT * objectiveYear || gConfigGeneral.allow_early_completion)
+    if (currentMonthYear == MONTH_COUNT * Year || AllowEarlyCompletion())
     {
-        if (parkRating >= 600 && guestsInPark >= objectiveGuests)
+        if (parkRating >= 600 && gNumGuestsInPark >= NumGuests)
         {
-            scenario_success();
+            return ObjectiveStatus::Success;
         }
-        else if (currentMonthYear == MONTH_COUNT * objectiveYear)
+        else if (currentMonthYear == MONTH_COUNT * Year)
         {
-            scenario_failure();
+            return ObjectiveStatus::Failure;
         }
     }
+
+    return ObjectiveStatus::Undecided;
 }
 
-static void scenario_objective_check_park_value_by()
+ObjectiveStatus Objective::CheckParkValueBy() const
 {
-    uint8_t objectiveYear = gScenarioObjectiveYear;
-    int16_t currentMonthYear = gDateMonthsElapsed;
-    money32 objectiveParkValue = gScenarioObjectiveCurrency;
+    int32_t currentMonthYear = gDateMonthsElapsed;
+    money32 objectiveParkValue = Currency;
     money32 parkValue = gParkValue;
 
-    if (currentMonthYear == MONTH_COUNT * objectiveYear || gConfigGeneral.allow_early_completion)
+    if (currentMonthYear == MONTH_COUNT * Year || AllowEarlyCompletion())
     {
         if (parkValue >= objectiveParkValue)
         {
-            scenario_success();
+            return ObjectiveStatus::Success;
         }
-        else if (currentMonthYear == MONTH_COUNT * objectiveYear)
+        else if (currentMonthYear == MONTH_COUNT * Year)
         {
-            scenario_failure();
+            return ObjectiveStatus::Failure;
         }
     }
+
+    return ObjectiveStatus::Undecided;
 }
 
 /**
@@ -714,39 +755,38 @@ static void scenario_objective_check_park_value_by()
  * excitement >= 600 .
  * rct2:
  **/
-static void scenario_objective_check_10_rollercoasters()
+ObjectiveStatus Objective::Check10RollerCoasters() const
 {
-    int32_t i, rcs = 0;
-    uint8_t type_already_counted[256] = {};
-    Ride* ride;
-
-    FOR_ALL_RIDES (i, ride)
+    auto rcs = 0;
+    std::bitset<MAX_RIDE_OBJECTS> type_already_counted;
+    for (const auto& ride : GetRideManager())
     {
-        uint8_t subtype_id = ride->subtype;
-        rct_ride_entry* rideEntry = get_ride_entry(subtype_id);
-        if (rideEntry == nullptr)
+        if (ride.status == RIDE_STATUS_OPEN && ride.excitement >= RIDE_RATING(6, 00) && ride.subtype != OBJECT_ENTRY_INDEX_NULL)
         {
-            continue;
-        }
-
-        if (rideEntry != nullptr && ride_entry_has_category(rideEntry, RIDE_CATEGORY_ROLLERCOASTER)
-            && ride->status == RIDE_STATUS_OPEN && ride->excitement >= RIDE_RATING(6, 00)
-            && type_already_counted[subtype_id] == 0)
-        {
-            type_already_counted[subtype_id]++;
-            rcs++;
+            auto rideEntry = ride.GetRideEntry();
+            if (rideEntry != nullptr)
+            {
+                if (ride_entry_has_category(rideEntry, RIDE_CATEGORY_ROLLERCOASTER) && !type_already_counted[ride.subtype])
+                {
+                    type_already_counted[ride.subtype] = true;
+                    rcs++;
+                }
+            }
         }
     }
-
     if (rcs >= 10)
-        scenario_success();
+    {
+        return ObjectiveStatus::Success;
+    }
+
+    return ObjectiveStatus::Undecided;
 }
 
 /**
  *
  *  rct2: 0x0066A13C
  */
-static void scenario_objective_check_guests_and_rating()
+ObjectiveStatus Objective::CheckGuestsAndRating() const
 {
     if (gParkRating < 700 && gDateMonthsElapsed >= 1)
     {
@@ -755,55 +795,59 @@ static void scenario_objective_check_guests_and_rating()
         {
             if (gConfigNotifications.park_rating_warnings)
             {
-                news_item_add_to_queue(NEWS_ITEM_GRAPH, STR_PARK_RATING_WARNING_4_WEEKS_REMAINING, 0);
+                News::AddItemToQueue(News::ItemType::Graph, STR_PARK_RATING_WARNING_4_WEEKS_REMAINING, 0, {});
             }
         }
         else if (gScenarioParkRatingWarningDays == 8)
         {
             if (gConfigNotifications.park_rating_warnings)
             {
-                news_item_add_to_queue(NEWS_ITEM_GRAPH, STR_PARK_RATING_WARNING_3_WEEKS_REMAINING, 0);
+                News::AddItemToQueue(News::ItemType::Graph, STR_PARK_RATING_WARNING_3_WEEKS_REMAINING, 0, {});
             }
         }
         else if (gScenarioParkRatingWarningDays == 15)
         {
             if (gConfigNotifications.park_rating_warnings)
             {
-                news_item_add_to_queue(NEWS_ITEM_GRAPH, STR_PARK_RATING_WARNING_2_WEEKS_REMAINING, 0);
+                News::AddItemToQueue(News::ItemType::Graph, STR_PARK_RATING_WARNING_2_WEEKS_REMAINING, 0, {});
             }
         }
         else if (gScenarioParkRatingWarningDays == 22)
         {
             if (gConfigNotifications.park_rating_warnings)
             {
-                news_item_add_to_queue(NEWS_ITEM_GRAPH, STR_PARK_RATING_WARNING_1_WEEK_REMAINING, 0);
+                News::AddItemToQueue(News::ItemType::Graph, STR_PARK_RATING_WARNING_1_WEEK_REMAINING, 0, {});
             }
         }
         else if (gScenarioParkRatingWarningDays == 29)
         {
-            news_item_add_to_queue(NEWS_ITEM_GRAPH, STR_PARK_HAS_BEEN_CLOSED_DOWN, 0);
+            News::AddItemToQueue(News::ItemType::Graph, STR_PARK_HAS_BEEN_CLOSED_DOWN, 0, {});
             gParkFlags &= ~PARK_FLAGS_PARK_OPEN;
-            scenario_failure();
             gGuestInitialHappiness = 50;
+            return ObjectiveStatus::Failure;
         }
     }
-    else if (gScenarioCompletedCompanyValue != (money32)0x80000001)
+    else if (gScenarioCompletedCompanyValue != COMPANY_VALUE_ON_FAILED_OBJECTIVE)
     {
         gScenarioParkRatingWarningDays = 0;
     }
 
     if (gParkRating >= 700)
-        if (gNumGuestsInPark >= gScenarioObjectiveNumGuests)
-            scenario_success();
+        if (gNumGuestsInPark >= NumGuests)
+            return ObjectiveStatus::Success;
+
+    return ObjectiveStatus::Undecided;
 }
 
-static void scenario_objective_check_monthly_ride_income()
+ObjectiveStatus Objective::CheckMonthlyRideIncome() const
 {
-    money32 lastMonthRideIncome = gExpenditureTable[1][RCT_EXPENDITURE_TYPE_PARK_RIDE_TICKETS];
-    if (lastMonthRideIncome >= gScenarioObjectiveCurrency)
+    money32 lastMonthRideIncome = gExpenditureTable[1][static_cast<int32_t>(ExpenditureType::ParkRideTickets)];
+    if (lastMonthRideIncome >= Currency)
     {
-        scenario_success();
+        return ObjectiveStatus::Success;
     }
+
+    return ObjectiveStatus::Undecided;
 }
 
 /**
@@ -811,83 +855,120 @@ static void scenario_objective_check_monthly_ride_income()
  * excitement > 700 and a minimum length;
  *  rct2: 0x0066A6B5
  */
-static void scenario_objective_check_10_rollercoasters_length()
+ObjectiveStatus Objective::Check10RollerCoastersLength() const
 {
-    int32_t i, rcs = 0;
-    uint8_t type_already_counted[256] = {};
-    int16_t objective_length = gScenarioObjectiveNumGuests;
-    Ride* ride;
-
-    FOR_ALL_RIDES (i, ride)
+    std::bitset<MAX_RIDE_OBJECTS> type_already_counted;
+    auto rcs = 0;
+    for (const auto& ride : GetRideManager())
     {
-        uint8_t subtype_id = ride->subtype;
-        rct_ride_entry* rideEntry = get_ride_entry(subtype_id);
-        if (rideEntry == nullptr)
+        if (ride.status == RIDE_STATUS_OPEN && ride.excitement >= RIDE_RATING(7, 00) && ride.subtype != OBJECT_ENTRY_INDEX_NULL)
         {
-            continue;
-        }
-        if (ride_entry_has_category(rideEntry, RIDE_CATEGORY_ROLLERCOASTER) && ride->status == RIDE_STATUS_OPEN
-            && ride->excitement >= RIDE_RATING(7, 00) && type_already_counted[subtype_id] == 0)
-        {
-            if ((ride_get_total_length(ride) >> 16) > objective_length)
+            auto rideEntry = ride.GetRideEntry();
+            if (rideEntry != nullptr)
             {
-                type_already_counted[subtype_id]++;
-                rcs++;
+                if (ride_entry_has_category(rideEntry, RIDE_CATEGORY_ROLLERCOASTER) && !type_already_counted[ride.subtype])
+                {
+                    if ((ride_get_total_length(&ride) >> 16) >= MinimumLength)
+                    {
+                        type_already_counted[ride.subtype] = true;
+                        rcs++;
+                    }
+                }
             }
         }
     }
-
     if (rcs >= 10)
-        scenario_success();
-}
-
-static void scenario_objective_check_finish_5_rollercoasters()
-{
-    money32 objectiveRideExcitement = gScenarioObjectiveCurrency;
-
-    // Originally, this did not check for null rides, neither did it check if
-    // the rides are even rollercoasters, never mind the right rollercoasters to be finished.
-    int32_t i;
-    Ride* ride;
-    int32_t rcs = 0;
-    FOR_ALL_RIDES (i, ride)
     {
-        const rct_ride_entry* rideEntry = get_ride_entry(ride->subtype);
-        if (rideEntry == nullptr)
-        {
-            continue;
-        }
-
-        if (ride->status != RIDE_STATUS_CLOSED && ride->excitement >= objectiveRideExcitement
-            && (ride->lifecycle_flags & RIDE_LIFECYCLE_INDESTRUCTIBLE_TRACK) && // Set on partially finished coasters
-            ride_entry_has_category(rideEntry, RIDE_CATEGORY_ROLLERCOASTER))
-            rcs++;
+        return ObjectiveStatus::Success;
     }
 
-    if (rcs >= 5)
-        scenario_success();
+    return ObjectiveStatus::Undecided;
 }
 
-static void scenario_objective_check_replay_loan_and_park_value()
+ObjectiveStatus Objective::CheckFinish5RollerCoasters() const
 {
-    money32 objectiveParkValue = gScenarioObjectiveCurrency;
+    // Originally, this did not check for null rides, neither did it check if
+    // the rides are even rollercoasters, never mind the right rollercoasters to be finished.
+    auto rcs = 0;
+    for (const auto& ride : GetRideManager())
+    {
+        if (ride.status != RIDE_STATUS_CLOSED && ride.excitement >= MinimumExcitement)
+        {
+            auto rideEntry = ride.GetRideEntry();
+            if (rideEntry != nullptr)
+            {
+                if ((ride.lifecycle_flags & RIDE_LIFECYCLE_INDESTRUCTIBLE_TRACK)
+                    && ride_entry_has_category(rideEntry, RIDE_CATEGORY_ROLLERCOASTER))
+                {
+                    rcs++;
+                }
+            }
+        }
+    }
+    if (rcs >= 5)
+    {
+        return ObjectiveStatus::Success;
+    }
+
+    return ObjectiveStatus::Undecided;
+}
+
+ObjectiveStatus Objective::CheckRepayLoanAndParkValue() const
+{
     money32 parkValue = gParkValue;
     money32 currentLoan = gBankLoan;
 
-    if (currentLoan <= 0 && parkValue >= objectiveParkValue)
-        scenario_success();
+    if (currentLoan <= 0 && parkValue >= Currency)
+    {
+        return ObjectiveStatus::Success;
+    }
+
+    return ObjectiveStatus::Undecided;
 }
 
-static void scenario_objective_check_monthly_food_income()
+ObjectiveStatus Objective::CheckMonthlyFoodIncome() const
 {
     money32* lastMonthExpenditure = gExpenditureTable[1];
-    int32_t lastMonthProfit = lastMonthExpenditure[RCT_EXPENDITURE_TYPE_SHOP_SHOP_SALES]
-        + lastMonthExpenditure[RCT_EXPENDITURE_TYPE_SHOP_STOCK] + lastMonthExpenditure[RCT_EXPENDITURE_TYPE_FOODDRINK_SALES]
-        + lastMonthExpenditure[RCT_EXPENDITURE_TYPE_FOODDRINK_STOCK];
+    int32_t lastMonthProfit = lastMonthExpenditure[static_cast<int32_t>(ExpenditureType::ShopSales)]
+        + lastMonthExpenditure[static_cast<int32_t>(ExpenditureType::ShopStock)]
+        + lastMonthExpenditure[static_cast<int32_t>(ExpenditureType::FoodDrinkSales)]
+        + lastMonthExpenditure[static_cast<int32_t>(ExpenditureType::FoodDrinkStock)];
 
-    if (lastMonthProfit >= gScenarioObjectiveCurrency)
+    if (lastMonthProfit >= Currency)
+    {
+        return ObjectiveStatus::Success;
+    }
+
+    return ObjectiveStatus::Undecided;
+}
+
+/*
+ * Returns the AllowEarlyCompletion-Option to be used
+ * depending on the Current Network-Mode.
+ */
+bool AllowEarlyCompletion()
+{
+    switch (network_get_mode())
+    {
+        case NETWORK_MODE_CLIENT:
+            return gAllowEarlyCompletionInNetworkPlay;
+        case NETWORK_MODE_NONE:
+        case NETWORK_MODE_SERVER:
+        default:
+            return gConfigGeneral.allow_early_completion;
+    }
+}
+
+static void scenario_objective_check()
+{
+    auto status = gScenarioObjective.Check();
+    if (status == ObjectiveStatus::Success)
     {
         scenario_success();
+    }
+    else if (status == ObjectiveStatus::Failure)
+    {
+        scenario_failure();
     }
 }
 
@@ -895,41 +976,48 @@ static void scenario_objective_check_monthly_food_income()
  * Checks the win/lose conditions of the current objective.
  *  rct2: 0x0066A4B2
  */
-static void scenario_objective_check()
+ObjectiveStatus Objective::Check() const
 {
     if (gScenarioCompletedCompanyValue != MONEY32_UNDEFINED)
     {
-        return;
+        return ObjectiveStatus::Undecided;
     }
 
-    switch (gScenarioObjectiveType)
+    switch (Type)
     {
         case OBJECTIVE_GUESTS_BY:
-            scenario_objective_check_guests_by();
-            break;
+            return CheckGuestsBy();
         case OBJECTIVE_PARK_VALUE_BY:
-            scenario_objective_check_park_value_by();
-            break;
+            return CheckParkValueBy();
         case OBJECTIVE_10_ROLLERCOASTERS:
-            scenario_objective_check_10_rollercoasters();
-            break;
+            return Check10RollerCoasters();
         case OBJECTIVE_GUESTS_AND_RATING:
-            scenario_objective_check_guests_and_rating();
-            break;
+            return CheckGuestsAndRating();
         case OBJECTIVE_MONTHLY_RIDE_INCOME:
-            scenario_objective_check_monthly_ride_income();
-            break;
+            return CheckMonthlyRideIncome();
         case OBJECTIVE_10_ROLLERCOASTERS_LENGTH:
-            scenario_objective_check_10_rollercoasters_length();
-            break;
+            return Check10RollerCoastersLength();
         case OBJECTIVE_FINISH_5_ROLLERCOASTERS:
-            scenario_objective_check_finish_5_rollercoasters();
-            break;
-        case OBJECTIVE_REPLAY_LOAN_AND_PARK_VALUE:
-            scenario_objective_check_replay_loan_and_park_value();
-            break;
+            return CheckFinish5RollerCoasters();
+        case OBJECTIVE_REPAY_LOAN_AND_PARK_VALUE:
+            return CheckRepayLoanAndParkValue();
         case OBJECTIVE_MONTHLY_FOOD_INCOME:
-            scenario_objective_check_monthly_food_income();
-            break;
+            return CheckMonthlyFoodIncome();
     }
+
+    return ObjectiveStatus::Undecided;
+}
+
+bool ObjectiveNeedsMoney(const uint8_t objective)
+{
+    switch (objective)
+    {
+        case OBJECTIVE_PARK_VALUE_BY:
+        case OBJECTIVE_MONTHLY_RIDE_INCOME:
+        case OBJECTIVE_REPAY_LOAN_AND_PARK_VALUE:
+        case OBJECTIVE_MONTHLY_FOOD_INCOME:
+            return true;
+    }
+
+    return false;
 }

@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (c) 2014-2019 OpenRCT2 developers
+ * Copyright (c) 2014-2020 OpenRCT2 developers
  *
  * For a complete list of all authors, please refer to contributors.md
  * Interested in contributing? Visit https://github.com/OpenRCT2/OpenRCT2
@@ -11,70 +11,79 @@
 
 #include "../common.h"
 #include "../drawing/Drawing.h"
+#include "../util/Util.h"
 
-enum CLIMATE
+enum class ClimateType : uint8_t
 {
-    CLIMATE_COOL_AND_WET,
-    CLIMATE_WARM,
-    CLIMATE_HOT_AND_DRY,
-    CLIMATE_COLD,
-    CLIMATE_COUNT,
+    CoolAndWet,
+    Warm,
+    HotAndDry,
+    Cold,
+    Count
 };
 
-enum WEATHER
+enum class WeatherType : uint8_t
 {
-    WEATHER_SUNNY,
-    WEATHER_PARTIALLY_CLOUDY,
-    WEATHER_CLOUDY,
-    WEATHER_RAIN,
-    WEATHER_HEAVY_RAIN,
-    WEATHER_THUNDER,
+    Sunny,
+    PartiallyCloudy,
+    Cloudy,
+    Rain,
+    HeavyRain,
+    Thunder,
+    Snow,
+    HeavySnow,
+    Blizzard,
+    Count
 };
 
-enum WEATHER_EFFECT
+enum class WeatherEffectType : uint8_t
 {
-    WEATHER_EFFECT_NONE,
-    WEATHER_EFFECT_RAIN,
-    WEATHER_EFFECT_STORM,
+    None,
+    Rain,
+    Storm,
+    Snow,
+    Blizzard,
 };
 
-enum RAIN_LEVEL
+enum class WeatherLevel
 {
-    RAIN_LEVEL_NONE,
-    RAIN_LEVEL_LIGHT,
-    RAIN_LEVEL_HEAVY,
+    None,
+    Light,
+    Heavy,
 };
 
 struct WeatherState
 {
     int8_t TemperatureDelta;
-    int8_t EffectLevel;
+    WeatherEffectType EffectLevel;
     int8_t GloomLevel;
-    int8_t RainLevel;
+    WeatherLevel Level;
     uint32_t SpriteId;
 };
 
 struct ClimateState
 {
-    uint8_t Weather;
+    WeatherType Weather;
     int8_t Temperature;
-    uint8_t WeatherEffect;
+    WeatherEffectType WeatherEffect;
     uint8_t WeatherGloom;
-    uint8_t RainLevel;
+    WeatherLevel Level;
 };
 
-extern uint8_t gClimate;
+extern ClimateType gClimate;
 extern ClimateState gClimateCurrent;
 extern ClimateState gClimateNext;
 extern uint16_t gClimateUpdateTimer;
 extern uint16_t gClimateLightningFlash;
 
 int32_t climate_celsius_to_fahrenheit(int32_t celsius);
-void climate_reset(int32_t climate);
+void climate_reset(ClimateType climate);
 void climate_update();
 void climate_update_sound();
-void climate_force_weather(uint8_t weather);
+void climate_force_weather(WeatherType weather);
 
 bool climate_is_raining();
-FILTER_PALETTE_ID climate_get_weather_gloom_palette_id(const ClimateState& state);
+bool climate_is_snowing();
+bool WeatherIsDry(WeatherType);
+FilterPaletteID climate_get_weather_gloom_palette_id(const ClimateState& state);
 uint32_t climate_get_weather_sprite_id(const ClimateState& state);

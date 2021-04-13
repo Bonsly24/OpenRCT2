@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (c) 2014-2019 OpenRCT2 developers
+ * Copyright (c) 2014-2020 OpenRCT2 developers
  *
  * For a complete list of all authors, please refer to contributors.md
  * Interested in contributing? Visit https://github.com/OpenRCT2/OpenRCT2
@@ -14,6 +14,7 @@
 #include "../../world/Map.h"
 #include "../Track.h"
 #include "../TrackPaint.h"
+#include "../Vehicle.h"
 #include "../VehiclePaint.h"
 
 enum
@@ -28,25 +29,30 @@ enum
  *  rct2: 0x006D6258
  */
 void vehicle_visual_observation_tower(
-    paint_session* session, int32_t x, int32_t imageDirection, int32_t y, int32_t z, const rct_vehicle* vehicle,
+    paint_session* session, int32_t x, int32_t imageDirection, int32_t y, int32_t z, const Vehicle* vehicle,
     const rct_ride_entry_vehicle* vehicleEntry)
 {
     int32_t image_id;
     int32_t baseImage_id = (vehicle->restraints_position / 64);
     if (vehicle->restraints_position >= 64)
     {
-        if ((imageDirection / 8) && (imageDirection / 8) != 3)
+        auto directionOffset = imageDirection / 8;
+        if ((directionOffset == 0) || (directionOffset == 3))
         {
-            baseImage_id *= 2;
-            baseImage_id += vehicleEntry->base_image_id + 28;
-            if ((imageDirection / 8) != 1)
-            {
-                baseImage_id -= 6;
-            }
+            baseImage_id = vehicleEntry->base_image_id + 8;
         }
         else
         {
-            baseImage_id = vehicleEntry->base_image_id + 8;
+            baseImage_id *= 2;
+            baseImage_id += vehicleEntry->base_image_id;
+            if (directionOffset == 1)
+            {
+                baseImage_id += 28;
+            }
+            else
+            {
+                baseImage_id += 22;
+            }
         }
     }
     else
@@ -54,9 +60,12 @@ void vehicle_visual_observation_tower(
         baseImage_id = (vehicle->animation_frame * 2) + vehicleEntry->base_image_id + 8;
     }
 
-    image_id = baseImage_id | (vehicle->colours.body_colour << 19) | (vehicle->colours.trim_colour << 24)
-        | IMAGE_TYPE_REMAP_2_PLUS;
-    paint_struct* ps = sub_98197C(session, image_id, 0, 0, 2, 2, 41, z, -11, -11, z + 1);
+    image_id = baseImage_id | SPRITE_ID_PALETTE_COLOUR_3(vehicle->colours.body_colour, vehicle->colours.trim_colour);
+    if (vehicle->IsGhost())
+    {
+        image_id = (image_id & 0x7FFFF) | CONSTRUCTION_MARKER;
+    }
+    paint_struct* ps = PaintAddImageAsParent(session, image_id, 0, 0, 2, 2, 41, z, -11, -11, z + 1);
     if (ps != nullptr)
     {
         ps->tertiary_colour = vehicle->colours_extended;
@@ -64,7 +73,7 @@ void vehicle_visual_observation_tower(
 
     image_id++;
 
-    ps = sub_98197C(session, image_id, 0, 0, 16, 16, 41, z, -5, -5, z + 1);
+    ps = PaintAddImageAsParent(session, image_id, 0, 0, 16, 16, 41, z, -5, -5, z + 1);
     if (ps != nullptr)
     {
         ps->tertiary_colour = vehicle->colours_extended;
@@ -81,28 +90,31 @@ static void paint_observation_tower_base(
     trackSequence = track_map_3x3[direction][trackSequence];
 
     int32_t edges = edges_3x3[trackSequence];
-    Ride* ride = get_ride(rideIndex);
-    LocationXY16 position = session->MapPosition;
+    CoordsXY position = session->MapPosition;
 
     wooden_a_supports_paint_setup(session, (direction & 1), 0, height, session->TrackColours[SCHEME_MISC], nullptr);
 
     uint32_t imageId = SPR_FLOOR_METAL_B | session->TrackColours[SCHEME_SUPPORTS];
-    sub_98197C(session, imageId, 0, 0, 32, 32, 1, height, 0, 0, height);
+    PaintAddImageAsParent(session, imageId, 0, 0, 32, 32, 1, height, 0, 0, height);
 
-    track_paint_util_paint_fences(
-        session, edges, position, tileElement, ride, session->TrackColours[SCHEME_TRACK], height, fenceSpritesMetalB,
-        session->CurrentRotation);
+    auto ride = get_ride(rideIndex);
+    if (ride != nullptr)
+    {
+        track_paint_util_paint_fences(
+            session, edges, position, tileElement, ride, session->TrackColours[SCHEME_TRACK], height, fenceSpritesMetalB,
+            session->CurrentRotation);
+    }
 
     if (trackSequence == 0)
     {
         imageId = SPR_OBSERVATION_TOWER_SEGMENT_BASE | session->TrackColours[SCHEME_TRACK];
-        sub_98197C(session, imageId, 0, 0, 2, 2, 27, height, 8, 8, height + 3);
+        PaintAddImageAsParent(session, imageId, 0, 0, 2, 2, 27, height, 8, 8, height + 3);
 
         imageId = SPR_OBSERVATION_TOWER_SEGMENT | session->TrackColours[SCHEME_TRACK];
-        sub_98197C(session, imageId, 0, 0, 2, 2, 30, height + 32, 8, 8, height + 32);
+        PaintAddImageAsParent(session, imageId, 0, 0, 2, 2, 30, height + 32, 8, 8, height + 32);
 
         imageId = SPR_OBSERVATION_TOWER_SEGMENT | session->TrackColours[SCHEME_TRACK];
-        sub_98197C(session, imageId, 0, 0, 2, 2, 30, height + 64, 8, 8, height + 64);
+        PaintAddImageAsParent(session, imageId, 0, 0, 2, 2, 30, height + 64, 8, 8, height + 64);
 
         paint_util_set_vertical_tunnel(session, height + 96);
         paint_util_set_segment_support_height(session, SEGMENTS_ALL, 0xFFFF, 0);
@@ -159,13 +171,13 @@ static void paint_observation_tower_section(
     }
 
     uint32_t imageId = SPR_OBSERVATION_TOWER_SEGMENT | session->TrackColours[SCHEME_TRACK];
-    sub_98197C(session, imageId, 0, 0, 2, 2, 30, height, 8, 8, height);
+    PaintAddImageAsParent(session, imageId, 0, 0, 2, 2, 30, height, 8, 8, height);
 
     const TileElement* nextTileElement = tileElement + 1;
-    if (tileElement->IsLastForTile() || tileElement->clearance_height != nextTileElement->base_height)
+    if (tileElement->IsLastForTile() || tileElement->GetClearanceZ() != nextTileElement->GetBaseZ())
     {
         imageId = SPR_OBSERVATION_TOWER_SEGMENT_TOP | session->TrackColours[SCHEME_TRACK];
-        sub_98199C(session, imageId, 0, 0, 2, 2, 30, height, 8, 8, height);
+        PaintAddImageAsChild(session, imageId, 0, 0, 2, 2, 30, height, 8, 8, height);
     }
 
     paint_util_set_segment_support_height(session, SEGMENTS_ALL, 0xFFFF, 0);
@@ -177,14 +189,14 @@ static void paint_observation_tower_section(
 /**
  * rct2: 0x0070DC5C
  */
-TRACK_PAINT_FUNCTION get_track_paint_function_observation_tower(int32_t trackType, int32_t direction)
+TRACK_PAINT_FUNCTION get_track_paint_function_observation_tower(int32_t trackType)
 {
     switch (trackType)
     {
-        case TRACK_ELEM_TOWER_BASE:
+        case TrackElemType::TowerBase:
             return paint_observation_tower_base;
 
-        case TRACK_ELEM_TOWER_SECTION:
+        case TrackElemType::TowerSection:
             return paint_observation_tower_section;
     }
 

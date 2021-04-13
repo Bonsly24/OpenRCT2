@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (c) 2014-2019 OpenRCT2 developers
+ * Copyright (c) 2014-2020 OpenRCT2 developers
  *
  * For a complete list of all authors, please refer to contributors.md
  * Interested in contributing? Visit https://github.com/OpenRCT2/OpenRCT2
@@ -10,12 +10,13 @@
 #include "SawyerEncoding.h"
 
 #include "../core/IStream.hpp"
+#include "RCT12.h"
 
 #include <algorithm>
 
 namespace SawyerEncoding
 {
-    bool ValidateChecksum(IStream* stream)
+    bool ValidateChecksum(OpenRCT2::IStream* stream)
     {
         uint64_t initialPosition = stream->GetPosition();
         uint64_t dataSize = stream->GetLength() - initialPosition;
@@ -55,6 +56,51 @@ namespace SawyerEncoding
             // Rewind back to original position
             stream->SetPosition(initialPosition);
             return false;
+        }
+    }
+
+    // Returns version number
+    RCT12TrackDesignVersion ValidateTrackChecksum(OpenRCT2::IStream* stream)
+    {
+        uint64_t initialPosition = stream->GetPosition();
+        uint64_t dataSize = stream->GetLength() - initialPosition;
+
+        if (dataSize < 4)
+        {
+            return RCT12TrackDesignVersion::unknown;
+        }
+        dataSize -= 4;
+
+        try
+        {
+            const auto buffer = stream->ReadArray<uint8_t>(dataSize);
+            const auto* data = buffer.get();
+            uint32_t checksum = 0;
+            for (size_t i = 0; i < dataSize; i++, ++data)
+            {
+                uint8_t newByte = ((checksum & 0xFF) + *data) & 0xFF;
+                checksum = (checksum & 0xFFFFFF00) + newByte;
+                checksum = rol32(checksum, 3);
+            }
+
+            uint32_t fileChecksum = stream->ReadValue<uint32_t>();
+            // Rewind back to original position
+            stream->SetPosition(initialPosition);
+
+            if (checksum - 0x1D4C1 == fileChecksum)
+                return RCT12TrackDesignVersion::TD6;
+            else if (checksum - 0x1A67C == fileChecksum)
+                return RCT12TrackDesignVersion::TD4;
+            else if (checksum - 0x1A650 == fileChecksum)
+                return RCT12TrackDesignVersion::TD4;
+            else
+                return RCT12TrackDesignVersion::unknown;
+        }
+        catch (const std::exception&)
+        {
+            // Rewind back to original position
+            stream->SetPosition(initialPosition);
+            return RCT12TrackDesignVersion::unknown;
         }
     }
 } // namespace SawyerEncoding

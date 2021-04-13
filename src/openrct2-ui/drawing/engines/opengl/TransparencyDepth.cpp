@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (c) 2014-2019 OpenRCT2 developers
+ * Copyright (c) 2014-2020 OpenRCT2 developers
  *
  * For a complete list of all authors, please refer to contributors.md
  * Interested in contributing? Visit https://github.com/OpenRCT2/OpenRCT2
@@ -24,7 +24,7 @@ struct XData
     bool begin;
     int32_t top, bottom;
 };
-typedef std::vector<XData> SweepLine;
+using SweepLine = std::vector<XData>;
 
 /*
  * Creates a list of vertical bounding box edges, stored as xdata and sorted
@@ -76,7 +76,7 @@ struct YData
 {
     int32_t count, depth;
 };
-typedef std::map<int32_t, YData> IntervalTree;
+using IntervalTree = std::map<int32_t, YData>;
 
 /*
  * Inserts the interval's top endpoint into the interval tree. If the endpoint
@@ -158,7 +158,7 @@ static inline void RemoveBottomEndpoint(IntervalTree& y_intersect, IntervalTree:
 }
 
 /*
- * Determines an aproximation of the number of depth peeling iterations needed
+ * Determines an approximation of the number of depth peeling iterations needed
  * to render the command batch. It will never underestimate the number of
  * iterations, but it can overestimate, usually by no more than +2.
  */

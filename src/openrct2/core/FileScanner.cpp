@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (c) 2014-2019 OpenRCT2 developers
+ * Copyright (c) 2014-2020 OpenRCT2 developers
  *
  * For a complete list of all authors, please refer to contributors.md
  * Interested in contributing? Visit https://github.com/OpenRCT2/OpenRCT2
@@ -10,7 +10,6 @@
 #include "../common.h"
 
 #ifdef _WIN32
-#    define WIN32_LEAN_AND_MEAN
 #    include <windows.h>
 #endif
 
@@ -130,7 +129,7 @@ public:
         {
             DirectoryState* state = &_directoryStack.top();
             state->Index++;
-            if (state->Index >= (int32_t)state->Listing.size())
+            if (state->Index >= static_cast<int32_t>(state->Listing.size()))
             {
                 _directoryStack.pop();
             }
@@ -199,11 +198,10 @@ private:
             c = *ch;
             if (c == '\0' || c == ';')
             {
-                size_t length = (size_t)(ch - start);
+                size_t length = static_cast<size_t>(ch - start);
                 if (length > 0)
                 {
-                    std::string newPattern = std::string(start, length);
-                    patterns.push_back(newPattern);
+                    patterns.emplace_back(start, length);
                 }
                 start = ch + 1;
             }
@@ -227,25 +225,22 @@ public:
 
     void GetDirectoryChildren(std::vector<DirectoryChild>& children, const std::string& path) override
     {
-        std::string pattern = path + "\\*";
-        wchar_t* wPattern = utf8_to_widechar(pattern.c_str());
+        auto pattern = path + "\\*";
+        auto wPattern = String::ToWideChar(pattern.c_str());
 
         WIN32_FIND_DATAW findData;
-        HANDLE hFile = FindFirstFileW(wPattern, &findData);
+        HANDLE hFile = FindFirstFileW(wPattern.c_str(), &findData);
         if (hFile != INVALID_HANDLE_VALUE)
         {
             do
             {
                 if (lstrcmpW(findData.cFileName, L".") != 0 && lstrcmpW(findData.cFileName, L"..") != 0)
                 {
-                    DirectoryChild child = CreateChild(&findData);
-                    children.push_back(child);
+                    children.push_back(CreateChild(&findData));
                 }
             } while (FindNextFileW(hFile, &findData));
             FindClose(hFile);
         }
-
-        Memory::Free(wPattern);
     }
 
 private:
@@ -253,10 +248,7 @@ private:
     {
         DirectoryChild result;
 
-        utf8* name = widechar_to_utf8(child->cFileName);
-        result.Name = std::string(name);
-        Memory::Free(name);
-
+        result.Name = String::ToUtf8(child->cFileName);
         if (child->dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
         {
             result.Type = DIRECTORY_CHILD_TYPE::DC_DIRECTORY;
@@ -264,9 +256,9 @@ private:
         else
         {
             result.Type = DIRECTORY_CHILD_TYPE::DC_FILE;
-            result.Size = ((uint64_t)child->nFileSizeHigh << 32ULL) | (uint64_t)child->nFileSizeLow;
-            result.LastModified = ((uint64_t)child->ftLastWriteTime.dwHighDateTime << 32ULL)
-                | (uint64_t)child->ftLastWriteTime.dwLowDateTime;
+            result.Size = (static_cast<uint64_t>(child->nFileSizeHigh) << 32ULL) | static_cast<uint64_t>(child->nFileSizeLow);
+            result.LastModified = (static_cast<uint64_t>(child->ftLastWriteTime.dwHighDateTime) << 32ULL)
+                | static_cast<uint64_t>(child->ftLastWriteTime.dwLowDateTime);
         }
         return result;
     }
@@ -295,8 +287,7 @@ public:
                 const struct dirent* node = namelist[i];
                 if (!String::Equals(node->d_name, ".") && !String::Equals(node->d_name, ".."))
                 {
-                    DirectoryChild child = CreateChild(path.c_str(), node);
-                    children.push_back(child);
+                    children.push_back(CreateChild(path.c_str(), node));
                 }
                 free(namelist[i]);
             }
@@ -370,8 +361,8 @@ void Path::QueryDirectory(QueryDirectoryResult* result, const std::string& patte
 
         result->TotalFiles++;
         result->TotalFileSize += fileInfo->Size;
-        result->FileDateModifiedChecksum ^= (uint32_t)(fileInfo->LastModified >> 32)
-            ^ (uint32_t)(fileInfo->LastModified & 0xFFFFFFFF);
+        result->FileDateModifiedChecksum ^= static_cast<uint32_t>(fileInfo->LastModified >> 32)
+            ^ static_cast<uint32_t>(fileInfo->LastModified & 0xFFFFFFFF);
         result->FileDateModifiedChecksum = ror32(result->FileDateModifiedChecksum, 5);
         result->PathChecksum += GetPathChecksum(path);
     }

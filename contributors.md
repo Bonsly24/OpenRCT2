@@ -5,13 +5,17 @@ Includes all git commit authors. Aliases are GitHub user names.
 * Ted John (IntelOrca) - Owner
 * Duncan Frost (duncanspumpkin)
 * Michael Steenbeek (Gymnasiast) - translation management
-* Michał Janiszewski (janisozaur) - CI, Linux management
-* Lewis Fox (LRFLEW) - macOS management
+* Michał Janiszewski (janisozaur)
+* Hielke Morsink (Broxzier)
+* Matthias Moninger (ZehMatt)
+* Tulio Paschoalin Leao (tupaschoal)
+
+## Former development team members
+* Lewis Fox (LRFLEW)
+* Marijn van der Werf (marijnvdwerf)
 * (zsilencer)
 * Richard Jenkins (rwjuk)
-* Hielke Morsink (Broxzier)
 * Aaron van Geffen (AaronVanGeffen)
-* Matthias Moninger (ZehMatt)
 
 ## Long term contributors
 The following people are not part of the development team, but have been contributing for a long time.
@@ -46,7 +50,7 @@ The following people are not part of the development team, but have been contrib
 * (atmaxinger) - User configuration
 * (anyc) - Housecleaning, cross-platform fixes
 * Michael Steenbeek (Gymnasiast) - Cheats, RCT1 ride style, misc.
-* Miso Zmiric (mzmiric5) - Twitch integration, misc.
+* Miso Zmiric (mzmiric5) - Old Twitch integration, misc.
 * Inseok Lee (dlunch) - Load save files from command line
 * Jørn Lomax (jvlomax) - Configuration parser
 * Alexander Overvoorde (Overv) - OpenGL improvements, Steam overlay detection, various bugfixes.
@@ -60,6 +64,7 @@ The following people are not part of the development team, but have been contrib
 * Michał Janiszewski (janisozaur) - Linux port, crash handling, security, misc.
 * Kelson Blakewood (spacek531) - title sequences for release versions 0.0.4 through 0.1.2, title sequences using milliseconds
 * Hugo Wallenburg (Goddesen) - Misc.
+* Edward Calver (X7123M3-256) - New Hybrid Coaster track, extended sprite toolchain, more vehicle cheats, misc.
 * Matte Andersson (Nubbie) - Misc, UX
 * Daniel Trujillo Viedma (gDanix) - Custom currency.
 * (zaxcav) - Improvements to original pathfinding algorithm.
@@ -78,6 +83,14 @@ The following people are not part of the development team, but have been contrib
 * Olivier Wervers (oli414) - Remove unused objects command, various bugfixes
 * Christian Schubert (Osmodium) - Ensuring custom user content folders, incl. open folder.
 * (Xkeeper0) - Improved banner tooltips; multiplayer status in toolbar.
+* Kevin Strehl (bitman2049) - Tile inspector keybindings
+* Anton Scharnowski (scrapes) - Added Scenery Scatter Options Window.
+* Chad Ian Anderson (pizza2004) - Added New Game option, bug fixes, misc.
+* Peter Ryszkiewicz (pRizz) - Added horizontal grid lines to finance charts.
+* Hudson Oliveira (hdpoliveira) - Misc.
+* Jim Verheijde (Jimver) - Make handymen less likely to get stuck in queue lines, misc.
+* Helio Batimarqui (batimarqui) - Misc.
+* Keith Stellyes (keithstellyes) - Misc.
 
 ## Bug fixes
 * (halfbro)
@@ -102,7 +115,7 @@ The following people are not part of the development team, but have been contrib
 * William Wallace (Willox)
 * Christian Friedrich Coors (ccoors)
 * Robbin Voortman (rvoortman)
-* (telk5093)
+* Willem J. Lee (telk5093)
 * Ethan Smith (ethanhs) - Refactor MAX_PATH
 * Robert Lewicki (rlewicki)
 * Liam Parker (elInfidel)
@@ -118,18 +131,39 @@ The following people are not part of the development team, but have been contrib
 * Øystein Dale (oystedal)
 * Christian Schubert (Osmodium)
 * James Lord (RCTMASTA)
-* Brian Massino (Nazey)
-* Lauren Watson (lwatson2016)
-* Jason Myre (jmyre1999)
-* Nicole Wright (nicolewright)
-* Josh Tucker (joshtucker132)
-* Hussein Okasha (Hokasha2016)
-* Brandon Dupree (Bdupree5)
-* Zetao Ye (ZbrettonYe)
-* Jordan Arevalos (Jarevalos2017)
+* Brian Massino (Nazey), Lauren Watson (lwatson2016), Jason Myre (jmyre1999), Nicole Wright (nicolewright), Josh Tucker (joshtucker132)
+* Hussein Okasha (Hokasha2016), Brandon Dupree (Bdupree5), Zetao Ye (ZbrettonYe), Jordan Arevalos (Jarevalos2017)
 * Florian Will (w-flo)
-* Trevor Harkness (tharkne)
-* Steve Xu (stevexu-umich)
+* Trevor Harkness (tharkne), Steve Xu (stevexu-umich)
+* (aw20368)
+* Jim Armstrong (41northstudios)
+* Kenny Castro-Monroy (kennycastro007)
+* Joseph Atkins-Turkish (Spacerat)
+* Denis Khabenkov (kodmord)
+* Kevin Laframboise (klaframboise)
+* Tushar Sariya (TusharSariya)
+* (WantDiscussion)
+* Tomáš Žilínek (TomasZilinek)
+* Mustapha Elghoul (mustaphaelghoul)
+* Tyler Leamon (tylerleamon)
+* Michael Coates (outerwear)
+* Reid Baris (Rdbaris)
+* Deanna Baris (dbaris)
+* Chaitanya Thengdi (chaitanyathengdi)
+* Sidney Kuyateh (autinerd)
+* Łukasz Pękalski (Lukasz-Pe)
+* (quale)
+* Arran Ireland (ion232)
+* Ryan Bello (ryan-bello)
+* Simon Jarrett (mwnciau)
+* Richard Fine (richard-fine)
+* Tom Parsons (tombomp)
+* Stephan Spengler (Sadret)
+* Roger Seekell (rpstester)
+* Ben Johnston (gsckoco)
+* (evilclownattack)
+* Adam Bloom (adam-bloom)
+* Geoff B. (geoff-B)
 
 ## Toolchain
 * (Balletie) - macOS
@@ -139,6 +173,7 @@ The following people are not part of the development team, but have been contrib
 * Ted John (IntelOrca) - Windows
 * Michał Janiszewski (janisozaur) - Linux, Travis CI
 * Lewis Fox (LRFLEW) - macOS
+* Andrew Rimpici (Andy608) - macOS
 
 ## Documentation
 * (honzi)
@@ -161,16 +196,17 @@ The following people are not part of the development team, but have been contrib
 * Chinese (Simplified) - Naiji Ma (naijim), (izhangfei), Eric Zhao (sczyh30), (Muhhan)
 * Chinese (Traditional) - Harry Lam (daihakken)
 * Czech - Martin Černáč (octaroot), (Clonewayx), Tomáš Pazdiora (Aroidzap)
+* Danish - Lars P. Sørensen (LPSGizmo)
 * Dutch - Michael Steenbeek (Gymnasiast), Yannic Geurts (xzbobzx), (mrtnptrs), Thomas den Hollander (ThomasdenH), (hostbrute),  Marijn van der Werf (marijnvdwerf), Tom Kroes (ThePsionic); reviewing and discussion: Aaron van Geffen (AaronVanGeffen), (Balletie) and Sijmen Schoon (SijmenSchoon).
 * Finnish - (DJHasis), (Zode), (TheWing)
 * French - (fbourigault), Joël Troch (JoelTroch), Michael Steenbeek (Gymnasiast), Romain Vigier (rvgr),  (AziasYur), Hugo Courtial (s0r00t), David Delobel (incyclum), Nicolas Hawrysh (xp4xbox)
 * German - (danidoedel), (atmaxinger), (Yepoleb), Daniel Kessel (dkessel), Leon (AllGoodNamesAreTaken), (raidcookie)
-* Italian - Luca Andrea Rossi (LucaRed)
-* Japanese - Aaron van Geffen (AaronVanGeffen), Nick Hall (nickhall), (jhako), Harry Lam (daihakken)
-* Korean - (telk5093), (NeverDruid); small fixes: (kexplo)
+* Italian - Luca Andrea Rossi (LucaRed), Precious Ugo Abara (48cfu)
+* Japanese - Aaron van Geffen (AaronVanGeffen), Haruna Chinzei, Nick Hall (nickhall), (jhako), Harry Lam (daihakken)
+* Korean - Willem J. Lee (telk5093), (NeverDruid); small fixes: (kexplo)
 * Norwegian - Hugo Wallenburg (Goddesen)
 * Polish - Adrian Wielgosik (adrian17), (lopezloo), Michał Janiszewski (janisozaur)
-* Portuguese (BR) - (kaudy), (renansimoes)
+* Portuguese (BR) - (kaudy), (renansimoes), Tulio Paschoalin Leao (tupaschoal)
 * Russian - (Soosisya)
 * Spanish - (mdtrooper), Josué Acevedo (Wirlie), Daniel Trujillo Viedma (gDanix); small fixes: (teapartycthulu)
 * Swedish - (Jinxit), (mharrys), (Slimeyo), Matte Andersson (Nubbie)

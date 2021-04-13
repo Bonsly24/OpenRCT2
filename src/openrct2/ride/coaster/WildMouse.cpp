@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (c) 2014-2019 OpenRCT2 developers
+ * Copyright (c) 2014-2020 OpenRCT2 developers
  *
  * For a complete list of all authors, please refer to contributors.md
  * Interested in contributing? Visit https://github.com/OpenRCT2/OpenRCT2
@@ -25,8 +25,10 @@ enum
     SPR_WILD_MOUSE_FLAT_NW_SE = 16901,
     SPR_WILD_MOUSE_BRAKES_SW_NE = 16902,
     SPR_WILD_MOUSE_BRAKES_NW_SE = 16903,
-    SPR_WILD_MOUSE_BLOCK_BRAKES_SW_NE = 16904,
-    SPR_WILD_MOUSE_BLOCK_BRAKES_NW_SE = 16905,
+    SPR_WILD_MOUSE_BLOCK_BRAKES_SW_NE_OPEN = 16904,
+    SPR_WILD_MOUSE_BLOCK_BRAKES_NW_SE_OPEN = 16905,
+    SPR_WILD_MOUSE_BLOCK_BRAKES_SW_NE_CLOSED = 16906,
+    SPR_WILD_MOUSE_BLOCK_BRAKES_NW_SE_CLOSED = 16907,
 
     SPR_WILD_MOUSE_ROTATION_CONTROL_TOGGLE_SW_NE = 16908,
     SPR_WILD_MOUSE_ROTATION_CONTROL_TOGGLE_NW_SE = 16909,
@@ -155,11 +157,11 @@ static constexpr const uint32_t _wild_mouse_brakes_image_ids[4] = {
     SPR_WILD_MOUSE_BRAKES_NW_SE,
 };
 
-static constexpr const uint32_t _wild_mouse_block_brakes_image_ids[4] = {
-    SPR_WILD_MOUSE_BLOCK_BRAKES_SW_NE,
-    SPR_WILD_MOUSE_BLOCK_BRAKES_NW_SE,
-    SPR_WILD_MOUSE_BLOCK_BRAKES_SW_NE,
-    SPR_WILD_MOUSE_BLOCK_BRAKES_NW_SE,
+static constexpr const uint32_t _wild_mouse_block_brakes_image_ids[NumOrthogonalDirections][2] = {
+    { SPR_WILD_MOUSE_BLOCK_BRAKES_SW_NE_OPEN, SPR_WILD_MOUSE_BLOCK_BRAKES_SW_NE_CLOSED },
+    { SPR_WILD_MOUSE_BLOCK_BRAKES_NW_SE_OPEN, SPR_WILD_MOUSE_BLOCK_BRAKES_NW_SE_CLOSED },
+    { SPR_WILD_MOUSE_BLOCK_BRAKES_SW_NE_OPEN, SPR_WILD_MOUSE_BLOCK_BRAKES_SW_NE_CLOSED },
+    { SPR_WILD_MOUSE_BLOCK_BRAKES_NW_SE_OPEN, SPR_WILD_MOUSE_BLOCK_BRAKES_NW_SE_CLOSED },
 };
 
 /** rct2: 0x0078B1E4 */
@@ -176,7 +178,7 @@ static void wild_mouse_track_flat(
 
     uint8_t isChained = tileElement->AsTrack()->HasChain() ? 1 : 0;
     uint32_t imageId = imageIds[direction][isChained] | session->TrackColours[SCHEME_TRACK];
-    sub_98197C_rotated(session, direction, imageId, 0, 0, 32, 20, 3, height, 0, 6, height);
+    PaintAddImageAsParentRotated(session, direction, imageId, 0, 0, 32, 20, 3, height, 0, 6, height);
     if (track_paint_util_should_paint_supports(session->MapPosition))
     {
         metal_a_supports_paint_setup(session, METAL_SUPPORTS_TUBES, 4, -1, height, session->TrackColours[SCHEME_SUPPORTS]);
@@ -199,24 +201,25 @@ static void wild_mouse_track_station(
     };
 
     int32_t trackType = tileElement->AsTrack()->GetTrackType();
-    sub_98197C_rotated(
+    PaintAddImageAsParentRotated(
         session, direction, baseImageIds[direction] | session->TrackColours[SCHEME_MISC], 0, 0, 32, 28, 2, height - 2, 0, 2,
         height);
-    if (trackType == TRACK_ELEM_END_STATION)
+    if (trackType == TrackElemType::EndStation)
     {
-        sub_98199C_rotated(
-            session, direction, _wild_mouse_block_brakes_image_ids[direction] | session->TrackColours[SCHEME_TRACK], 0, 0, 32,
-            20, 2, height, 0, 0, height);
+        bool isClosed = tileElement->AsTrack()->BlockBrakeClosed();
+        PaintAddImageAsChildRotated(
+            session, direction, _wild_mouse_block_brakes_image_ids[direction][isClosed] | session->TrackColours[SCHEME_TRACK],
+            0, 0, 32, 20, 2, height, 0, 0, height);
     }
     else
     {
-        sub_98199C_rotated(
+        PaintAddImageAsChildRotated(
             session, direction, _wild_mouse_brakes_image_ids[direction] | session->TrackColours[SCHEME_TRACK], 0, 0, 32, 20, 2,
             height, 0, 0, height);
     }
     track_paint_util_draw_station_metal_supports(session, direction, height, session->TrackColours[SCHEME_SUPPORTS]);
     track_paint_util_draw_station(session, rideIndex, direction, height, tileElement);
-    paint_util_push_tunnel_rotated(session, direction, height, TUNNEL_6);
+    paint_util_push_tunnel_rotated(session, direction, height, TUNNEL_SQUARE_FLAT);
     paint_util_set_segment_support_height(session, SEGMENTS_ALL, 0xFFFF, 0);
     paint_util_set_general_support_height(session, height + 32, 0x20);
 }
@@ -235,7 +238,7 @@ static void wild_mouse_track_25_deg_up(
 
     uint8_t isChained = tileElement->AsTrack()->HasChain() ? 1 : 0;
     uint32_t imageId = imageIds[direction][isChained] | session->TrackColours[SCHEME_TRACK];
-    sub_98197C_rotated(session, direction, imageId, 0, 0, 32, 20, 3, height, 0, 6, height);
+    PaintAddImageAsParentRotated(session, direction, imageId, 0, 0, 32, 20, 3, height, 0, 6, height);
     if (track_paint_util_should_paint_supports(session->MapPosition))
     {
         metal_a_supports_paint_setup(session, METAL_SUPPORTS_TUBES, 4, -9, height, session->TrackColours[SCHEME_SUPPORTS]);
@@ -269,11 +272,11 @@ static void wild_mouse_track_60_deg_up(
     uint32_t imageId = imageIds[direction][isChained] | session->TrackColours[SCHEME_TRACK];
     if (direction == 0 || direction == 3)
     {
-        sub_98197C_rotated(session, direction, imageId, 0, 0, 32, 20, 3, height, 0, 6, height);
+        PaintAddImageAsParentRotated(session, direction, imageId, 0, 0, 32, 20, 3, height, 0, 6, height);
     }
     else
     {
-        sub_98197C_rotated(session, direction, imageId, 0, 0, 32, 1, 98, height, 0, 27, height);
+        PaintAddImageAsParentRotated(session, direction, imageId, 0, 0, 32, 1, 98, height, 0, 27, height);
     }
     if (track_paint_util_should_paint_supports(session->MapPosition))
     {
@@ -313,7 +316,7 @@ static void wild_mouse_track_flat_to_25_deg_up(
 
     uint8_t isChained = tileElement->AsTrack()->HasChain() ? 1 : 0;
     uint32_t imageId = imageIds[direction][isChained] | session->TrackColours[SCHEME_TRACK];
-    sub_98197C_rotated(session, direction, imageId, 0, 0, 32, 20, 3, height, 0, 6, height);
+    PaintAddImageAsParentRotated(session, direction, imageId, 0, 0, 32, 20, 3, height, 0, 6, height);
     if (track_paint_util_should_paint_supports(session->MapPosition))
     {
         metal_a_supports_paint_setup(session, METAL_SUPPORTS_TUBES, 4, -4, height, session->TrackColours[SCHEME_SUPPORTS]);
@@ -354,12 +357,12 @@ static void wild_mouse_track_25_deg_up_to_60_deg_up(
     uint32_t frontImageId = frontImageIds[direction][isChained] | session->TrackColours[SCHEME_TRACK];
     if (direction == 0 || direction == 3)
     {
-        sub_98197C_rotated(session, direction, imageId, 0, 0, 32, 20, 3, height, 0, 6, height);
+        PaintAddImageAsParentRotated(session, direction, imageId, 0, 0, 32, 20, 3, height, 0, 6, height);
     }
     else
     {
-        sub_98197C_rotated(session, direction, imageId, 0, 0, 32, 20, 3, height, 0, 6, height);
-        sub_98197C_rotated(session, direction, frontImageId, 0, 0, 32, 1, 66, height, 0, 27, height);
+        PaintAddImageAsParentRotated(session, direction, imageId, 0, 0, 32, 20, 3, height, 0, 6, height);
+        PaintAddImageAsParentRotated(session, direction, frontImageId, 0, 0, 32, 1, 66, height, 0, 27, height);
     }
     if (track_paint_util_should_paint_supports(session->MapPosition))
     {
@@ -401,12 +404,12 @@ static void wild_mouse_track_60_deg_up_to_25_deg_up(
     uint32_t frontImageId = frontImageIds[direction][isChained] | session->TrackColours[SCHEME_TRACK];
     if (direction == 0 || direction == 3)
     {
-        sub_98197C_rotated(session, direction, imageId, 0, 0, 32, 20, 3, height, 0, 6, height);
+        PaintAddImageAsParentRotated(session, direction, imageId, 0, 0, 32, 20, 3, height, 0, 6, height);
     }
     else
     {
-        sub_98197C_rotated(session, direction, imageId, 0, 0, 32, 20, 3, height, 0, 6, height);
-        sub_98197C_rotated(session, direction, frontImageId, 0, 0, 32, 1, 66, height, 0, 27, height);
+        PaintAddImageAsParentRotated(session, direction, imageId, 0, 0, 32, 20, 3, height, 0, 6, height);
+        PaintAddImageAsParentRotated(session, direction, frontImageId, 0, 0, 32, 1, 66, height, 0, 27, height);
     }
     if (track_paint_util_should_paint_supports(session->MapPosition))
     {
@@ -439,7 +442,7 @@ static void wild_mouse_track_25_deg_up_to_flat(
 
     uint8_t isChained = tileElement->AsTrack()->HasChain() ? 1 : 0;
     uint32_t imageId = imageIds[direction][isChained] | session->TrackColours[SCHEME_TRACK];
-    sub_98197C_rotated(session, direction, imageId, 0, 0, 32, 20, 3, height, 0, 6, height);
+    PaintAddImageAsParentRotated(session, direction, imageId, 0, 0, 32, 20, 3, height, 0, 6, height);
     if (track_paint_util_should_paint_supports(session->MapPosition))
     {
         metal_a_supports_paint_setup(session, METAL_SUPPORTS_TUBES, 4, -7, height, session->TrackColours[SCHEME_SUPPORTS]);
@@ -589,9 +592,10 @@ static void wild_mouse_track_right_quarter_turn_3_25_deg_down(
     {
         int32_t part = trackSequence == 0 ? 0 : 1;
         const sprite_bb* sbb = &imageIds[direction][part];
-        sub_98196C(
-            session, sbb->sprite_id | session->TrackColours[SCHEME_TRACK], (int8_t)sbb->offset.x, (int8_t)sbb->offset.y,
-            sbb->bb_size.x, sbb->bb_size.y, (int8_t)sbb->bb_size.z, height + (int8_t)sbb->offset.z);
+        PaintAddImageAsParent(
+            session, sbb->sprite_id | session->TrackColours[SCHEME_TRACK], static_cast<int8_t>(sbb->offset.x),
+            static_cast<int8_t>(sbb->offset.y), sbb->bb_size.x, sbb->bb_size.y, static_cast<int8_t>(sbb->bb_size.z),
+            height + static_cast<int8_t>(sbb->offset.z));
     }
 
     track_paint_util_right_quarter_turn_3_tiles_25_deg_down_tunnel(
@@ -657,9 +661,10 @@ static void wild_mouse_track_right_quarter_turn_3_25_deg_up(
     {
         int32_t part = trackSequence == 0 ? 0 : 1;
         const sprite_bb* sbb = &imageIds[direction][part];
-        sub_98196C(
-            session, sbb->sprite_id | session->TrackColours[SCHEME_TRACK], (int8_t)sbb->offset.x, (int8_t)sbb->offset.y,
-            sbb->bb_size.x, sbb->bb_size.y, (int8_t)sbb->bb_size.z, height + (int8_t)sbb->offset.z);
+        PaintAddImageAsParent(
+            session, sbb->sprite_id | session->TrackColours[SCHEME_TRACK], static_cast<int8_t>(sbb->offset.x),
+            static_cast<int8_t>(sbb->offset.y), sbb->bb_size.x, sbb->bb_size.y, static_cast<int8_t>(sbb->bb_size.z),
+            height + static_cast<int8_t>(sbb->offset.z));
     }
 
     track_paint_util_right_quarter_turn_3_tiles_25_deg_up_tunnel(session, height, direction, trackSequence, TUNNEL_1, TUNNEL_2);
@@ -731,16 +736,16 @@ static void wild_mouse_track_left_quarter_turn_1(
     switch (direction)
     {
         case 0:
-            sub_98197C(session, imageId, 0, 0, 26, 24, 2, height, 6, 2, height);
+            PaintAddImageAsParent(session, imageId, 0, 0, 26, 24, 2, height, 6, 2, height);
             break;
         case 1:
-            sub_98196C(session, imageId, 0, 0, 26, 26, 2, height);
+            PaintAddImageAsParent(session, imageId, 0, 0, 26, 26, 2, height);
             break;
         case 2:
-            sub_98197C(session, imageId, 0, 0, 24, 26, 2, height, 2, 6, height);
+            PaintAddImageAsParent(session, imageId, 0, 0, 24, 26, 2, height, 2, 6, height);
             break;
         case 3:
-            sub_98197C(session, imageId, 0, 0, 24, 24, 2, height, 6, 6, height);
+            PaintAddImageAsParent(session, imageId, 0, 0, 24, 24, 2, height, 6, 6, height);
             break;
     }
     metal_a_supports_paint_setup(session, METAL_SUPPORTS_TUBES, 4, -1, height, session->TrackColours[SCHEME_SUPPORTS]);
@@ -781,12 +786,12 @@ static void wild_mouse_track_flat_to_60_deg_up(
     uint32_t frontImageId = frontImageIds[direction][isChained] | session->TrackColours[SCHEME_TRACK];
     if (direction == 0 || direction == 3)
     {
-        sub_98197C_rotated(session, direction, imageId, 0, 0, 32, 27, 2, height, 0, 2, height);
+        PaintAddImageAsParentRotated(session, direction, imageId, 0, 0, 32, 27, 2, height, 0, 2, height);
     }
     else
     {
-        sub_98197C_rotated(session, direction, imageId, 0, 0, 1, 24, 43, height, 29, 4, height + 2);
-        sub_98197C_rotated(session, direction, frontImageId, 0, 0, 32, 2, 43, height, 0, 4, height);
+        PaintAddImageAsParentRotated(session, direction, imageId, 0, 0, 1, 24, 43, height, 29, 4, height + 2);
+        PaintAddImageAsParentRotated(session, direction, frontImageId, 0, 0, 32, 2, 43, height, 0, 4, height);
     }
     if (track_paint_util_should_paint_supports(session->MapPosition))
     {
@@ -828,12 +833,12 @@ static void wild_mouse_track_60_deg_up_to_flat(
     uint32_t frontImageId = frontImageIds[direction][isChained] | session->TrackColours[SCHEME_TRACK];
     if (direction == 0 || direction == 3)
     {
-        sub_98197C_rotated(session, direction, imageId, 0, 0, 32, 27, 2, height, 0, 2, height);
+        PaintAddImageAsParentRotated(session, direction, imageId, 0, 0, 32, 27, 2, height, 0, 2, height);
     }
     else
     {
-        sub_98197C_rotated(session, direction, imageId, 0, 0, 1, 24, 43, height, 29, 4, height + 2);
-        sub_98197C_rotated(session, direction, frontImageId, 0, 0, 32, 2, 43, height, 0, 4, height);
+        PaintAddImageAsParentRotated(session, direction, imageId, 0, 0, 1, 24, 43, height, 29, 4, height + 2);
+        PaintAddImageAsParentRotated(session, direction, frontImageId, 0, 0, 32, 2, 43, height, 0, 4, height);
     }
     if (track_paint_util_should_paint_supports(session->MapPosition))
     {
@@ -881,7 +886,7 @@ static void wild_mouse_track_brakes(
     const TileElement* tileElement)
 {
     uint32_t imageId = _wild_mouse_brakes_image_ids[direction] | session->TrackColours[SCHEME_TRACK];
-    sub_98197C_rotated(session, direction, imageId, 0, 0, 32, 20, 3, height, 0, 6, height);
+    PaintAddImageAsParentRotated(session, direction, imageId, 0, 0, 32, 20, 3, height, 0, 6, height);
     if (track_paint_util_should_paint_supports(session->MapPosition))
     {
         metal_a_supports_paint_setup(session, METAL_SUPPORTS_TUBES, 4, 0, height, session->TrackColours[SCHEME_SUPPORTS]);
@@ -905,7 +910,7 @@ static void wild_mouse_track_rotation_control_toggle(
     };
 
     uint32_t imageId = imageIds[direction] | session->TrackColours[SCHEME_TRACK];
-    sub_98197C_rotated(session, direction, imageId, 0, 0, 32, 20, 3, height, 0, 6, height);
+    PaintAddImageAsParentRotated(session, direction, imageId, 0, 0, 32, 20, 3, height, 0, 6, height);
     if (track_paint_util_should_paint_supports(session->MapPosition))
     {
         metal_a_supports_paint_setup(session, METAL_SUPPORTS_TUBES, 4, 0, height, session->TrackColours[SCHEME_SUPPORTS]);
@@ -921,8 +926,9 @@ static void wild_mouse_track_block_brakes(
     paint_session* session, ride_id_t rideIndex, uint8_t trackSequence, uint8_t direction, int32_t height,
     const TileElement* tileElement)
 {
-    uint32_t imageId = _wild_mouse_block_brakes_image_ids[direction] | session->TrackColours[SCHEME_TRACK];
-    sub_98197C_rotated(session, direction, imageId, 0, 0, 32, 20, 3, height, 0, 6, height);
+    bool isClosed = tileElement->AsTrack()->BlockBrakeClosed();
+    uint32_t imageId = _wild_mouse_block_brakes_image_ids[direction][isClosed] | session->TrackColours[SCHEME_TRACK];
+    PaintAddImageAsParentRotated(session, direction, imageId, 0, 0, 32, 20, 3, height, 0, 6, height);
     if (track_paint_util_should_paint_supports(session->MapPosition))
     {
         metal_a_supports_paint_setup(session, METAL_SUPPORTS_TUBES, 4, 0, height, session->TrackColours[SCHEME_SUPPORTS]);
@@ -933,69 +939,69 @@ static void wild_mouse_track_block_brakes(
     paint_util_set_general_support_height(session, height + 32, 0x20);
 }
 
-TRACK_PAINT_FUNCTION get_track_paint_function_wild_mouse(int32_t trackType, int32_t direction)
+TRACK_PAINT_FUNCTION get_track_paint_function_wild_mouse(int32_t trackType)
 {
     switch (trackType)
     {
-        case TRACK_ELEM_FLAT:
+        case TrackElemType::Flat:
             return wild_mouse_track_flat;
-        case TRACK_ELEM_END_STATION:
-        case TRACK_ELEM_BEGIN_STATION:
-        case TRACK_ELEM_MIDDLE_STATION:
+        case TrackElemType::EndStation:
+        case TrackElemType::BeginStation:
+        case TrackElemType::MiddleStation:
             return wild_mouse_track_station;
-        case TRACK_ELEM_25_DEG_UP:
+        case TrackElemType::Up25:
             return wild_mouse_track_25_deg_up;
-        case TRACK_ELEM_60_DEG_UP:
+        case TrackElemType::Up60:
             return wild_mouse_track_60_deg_up;
-        case TRACK_ELEM_FLAT_TO_25_DEG_UP:
+        case TrackElemType::FlatToUp25:
             return wild_mouse_track_flat_to_25_deg_up;
-        case TRACK_ELEM_25_DEG_UP_TO_60_DEG_UP:
+        case TrackElemType::Up25ToUp60:
             return wild_mouse_track_25_deg_up_to_60_deg_up;
-        case TRACK_ELEM_60_DEG_UP_TO_25_DEG_UP:
+        case TrackElemType::Up60ToUp25:
             return wild_mouse_track_60_deg_up_to_25_deg_up;
-        case TRACK_ELEM_25_DEG_UP_TO_FLAT:
+        case TrackElemType::Up25ToFlat:
             return wild_mouse_track_25_deg_up_to_flat;
-        case TRACK_ELEM_25_DEG_DOWN:
+        case TrackElemType::Down25:
             return wild_mouse_track_25_deg_down;
-        case TRACK_ELEM_60_DEG_DOWN:
+        case TrackElemType::Down60:
             return wild_mouse_track_60_deg_down;
-        case TRACK_ELEM_FLAT_TO_25_DEG_DOWN:
+        case TrackElemType::FlatToDown25:
             return wild_mouse_track_flat_to_25_deg_down;
-        case TRACK_ELEM_25_DEG_DOWN_TO_60_DEG_DOWN:
+        case TrackElemType::Down25ToDown60:
             return wild_mouse_track_25_deg_down_to_60_deg_down;
-        case TRACK_ELEM_60_DEG_DOWN_TO_25_DEG_DOWN:
+        case TrackElemType::Down60ToDown25:
             return wild_mouse_track_60_deg_down_to_25_deg_down;
-        case TRACK_ELEM_25_DEG_DOWN_TO_FLAT:
+        case TrackElemType::Down25ToFlat:
             return wild_mouse_track_25_deg_down_to_flat;
-        case TRACK_ELEM_LEFT_QUARTER_TURN_3_TILES:
+        case TrackElemType::LeftQuarterTurn3Tiles:
             return wild_mouse_track_left_quarter_turn_3;
-        case TRACK_ELEM_RIGHT_QUARTER_TURN_3_TILES:
+        case TrackElemType::RightQuarterTurn3Tiles:
             return wild_mouse_track_right_quarter_turn_3;
-        case TRACK_ELEM_LEFT_QUARTER_TURN_3_TILES_25_DEG_UP:
+        case TrackElemType::LeftQuarterTurn3TilesUp25:
             return wild_mouse_track_left_quarter_turn_3_25_deg_up;
-        case TRACK_ELEM_RIGHT_QUARTER_TURN_3_TILES_25_DEG_UP:
+        case TrackElemType::RightQuarterTurn3TilesUp25:
             return wild_mouse_track_right_quarter_turn_3_25_deg_up;
-        case TRACK_ELEM_LEFT_QUARTER_TURN_3_TILES_25_DEG_DOWN:
+        case TrackElemType::LeftQuarterTurn3TilesDown25:
             return wild_mouse_track_left_quarter_turn_3_25_deg_down;
-        case TRACK_ELEM_RIGHT_QUARTER_TURN_3_TILES_25_DEG_DOWN:
+        case TrackElemType::RightQuarterTurn3TilesDown25:
             return wild_mouse_track_right_quarter_turn_3_25_deg_down;
-        case TRACK_ELEM_LEFT_QUARTER_TURN_1_TILE:
+        case TrackElemType::LeftQuarterTurn1Tile:
             return wild_mouse_track_left_quarter_turn_1;
-        case TRACK_ELEM_RIGHT_QUARTER_TURN_1_TILE:
+        case TrackElemType::RightQuarterTurn1Tile:
             return wild_mouse_track_right_quarter_turn_1;
-        case TRACK_ELEM_FLAT_TO_60_DEG_UP:
+        case TrackElemType::FlatToUp60:
             return wild_mouse_track_flat_to_60_deg_up;
-        case TRACK_ELEM_60_DEG_UP_TO_FLAT:
+        case TrackElemType::Up60ToFlat:
             return wild_mouse_track_60_deg_up_to_flat;
-        case TRACK_ELEM_FLAT_TO_60_DEG_DOWN:
+        case TrackElemType::FlatToDown60:
             return wild_mouse_track_flat_to_60_deg_down;
-        case TRACK_ELEM_60_DEG_DOWN_TO_FLAT:
+        case TrackElemType::Down60ToFlat:
             return wild_mouse_track_60_deg_down_to_flat;
-        case TRACK_ELEM_BRAKES:
+        case TrackElemType::Brakes:
             return wild_mouse_track_brakes;
-        case TRACK_ELEM_ROTATION_CONTROL_TOGGLE:
+        case TrackElemType::RotationControlToggle:
             return wild_mouse_track_rotation_control_toggle;
-        case TRACK_ELEM_BLOCK_BRAKES:
+        case TrackElemType::BlockBrakes:
             return wild_mouse_track_block_brakes;
     }
     return nullptr;

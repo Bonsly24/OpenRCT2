@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (c) 2014-2019 OpenRCT2 developers
+ * Copyright (c) 2014-2020 OpenRCT2 developers
  *
  * For a complete list of all authors, please refer to contributors.md
  * Interested in contributing? Visit https://github.com/OpenRCT2/OpenRCT2
@@ -58,17 +58,17 @@ static void fence_paint_door(
     {
         paint_struct* ps;
 
-        ps = sub_98197C(
-            session, imageId, (int8_t)offset.x, (int8_t)offset.y, boundsR1.x, boundsR1.y, (int8_t)boundsR1.z, offset.z,
-            boundsR1_.x, boundsR1_.y, boundsR1_.z);
+        ps = PaintAddImageAsParent(
+            session, imageId, static_cast<int8_t>(offset.x), static_cast<int8_t>(offset.y), boundsR1.x, boundsR1.y,
+            static_cast<int8_t>(boundsR1.z), offset.z, boundsR1_.x, boundsR1_.y, boundsR1_.z);
         if (ps != nullptr)
         {
             ps->tertiary_colour = tertiaryColour;
         }
 
-        ps = sub_98197C(
-            session, imageId + 1, (int8_t)offset.x, (int8_t)offset.y, boundsR2.x, boundsR2.y, (int8_t)boundsR2.z, offset.z,
-            boundsR2_.x, boundsR2_.y, boundsR2_.z);
+        ps = PaintAddImageAsParent(
+            session, imageId + 1, static_cast<int8_t>(offset.x), static_cast<int8_t>(offset.y), boundsR2.x, boundsR2.y,
+            static_cast<int8_t>(boundsR2.z), offset.z, boundsR2_.x, boundsR2_.y, boundsR2_.z);
         if (ps != nullptr)
         {
             ps->tertiary_colour = tertiaryColour;
@@ -78,17 +78,17 @@ static void fence_paint_door(
     {
         paint_struct* ps;
 
-        ps = sub_98197C(
-            session, imageId, (int8_t)offset.x, (int8_t)offset.y, boundsL1.x, boundsL1.y, (int8_t)boundsL1.z, offset.z,
-            boundsL1_.x, boundsL1_.y, boundsL1_.z);
+        ps = PaintAddImageAsParent(
+            session, imageId, static_cast<int8_t>(offset.x), static_cast<int8_t>(offset.y), boundsL1.x, boundsL1.y,
+            static_cast<int8_t>(boundsL1.z), offset.z, boundsL1_.x, boundsL1_.y, boundsL1_.z);
         if (ps != nullptr)
         {
             ps->tertiary_colour = tertiaryColour;
         }
 
-        ps = sub_98199C(
-            session, imageId + 1, (int8_t)offset.x, (int8_t)offset.y, boundsL1.x, boundsL1.y, (int8_t)boundsL1.z, offset.z,
-            boundsL1_.x, boundsL1_.y, boundsL1_.z);
+        ps = PaintAddImageAsChild(
+            session, imageId + 1, static_cast<int8_t>(offset.x), static_cast<int8_t>(offset.y), boundsL1.x, boundsL1.y,
+            static_cast<int8_t>(boundsL1.z), offset.z, boundsL1_.x, boundsL1_.y, boundsL1_.z);
         if (ps != nullptr)
         {
             ps->tertiary_colour = tertiaryColour;
@@ -116,15 +116,15 @@ static void fence_paint_wall(
             imageId = (imageId & 0x7FFFF) | dword_141F710;
         }
 
-        sub_98197C(
-            session, imageId, (int8_t)offset.x, (int8_t)offset.y, bounds.x, bounds.y, (int8_t)bounds.z, offset.z,
-            boundsOffset.x, boundsOffset.y, boundsOffset.z);
+        PaintAddImageAsParent(
+            session, imageId, static_cast<int8_t>(offset.x), static_cast<int8_t>(offset.y), bounds.x, bounds.y,
+            static_cast<int8_t>(bounds.z), offset.z, boundsOffset.x, boundsOffset.y, boundsOffset.z);
         if (dword_141F710 == 0)
         {
             imageId = baseImageId + dword_141F718;
-            sub_98199C(
-                session, imageId, (int8_t)offset.x, (int8_t)offset.y, bounds.x, bounds.y, (int8_t)bounds.z, offset.z,
-                boundsOffset.x, boundsOffset.y, boundsOffset.z);
+            PaintAddImageAsChild(
+                session, imageId, static_cast<int8_t>(offset.x), static_cast<int8_t>(offset.y), bounds.x, bounds.y,
+                static_cast<int8_t>(bounds.z), offset.z, boundsOffset.x, boundsOffset.y, boundsOffset.z);
         }
     }
     else
@@ -139,9 +139,9 @@ static void fence_paint_wall(
             imageId = (imageId & 0x7FFFF) | dword_141F710;
         }
 
-        paint_struct* paint = sub_98197C(
-            session, imageId, (int8_t)offset.x, (int8_t)offset.y, bounds.x, bounds.y, (int8_t)bounds.z, offset.z,
-            boundsOffset.x, boundsOffset.y, boundsOffset.z);
+        paint_struct* paint = PaintAddImageAsParent(
+            session, imageId, static_cast<int8_t>(offset.x), static_cast<int8_t>(offset.y), bounds.x, bounds.y,
+            static_cast<int8_t>(bounds.z), offset.z, boundsOffset.x, boundsOffset.y, boundsOffset.z);
         if (paint != nullptr)
         {
             paint->tertiary_colour = tertiaryColour;
@@ -156,7 +156,7 @@ static void fence_paint_wall(
  */
 void fence_paint(paint_session* session, uint8_t direction, int32_t height, const TileElement* tile_element)
 {
-    session->InteractionType = VIEWPORT_INTERACTION_ITEM_WALL;
+    session->InteractionType = ViewportInteractionItem::Wall;
 
     rct_scenery_entry* sceneryEntry = tile_element->AsWall()->GetEntry();
     if (sceneryEntry == nullptr)
@@ -171,7 +171,7 @@ void fence_paint(paint_session* session, uint8_t direction, int32_t height, cons
     }
 
     int32_t primaryColour = tile_element->AsWall()->GetPrimaryColour();
-    uint32_t imageColourFlags = primaryColour << 19 | IMAGE_TYPE_REMAP;
+    uint32_t imageColourFlags = SPRITE_ID_PALETTE_COLOUR_1(primaryColour);
     uint32_t dword_141F718 = imageColourFlags + 0x23800006;
 
     if (sceneryEntry->wall.flags & WALL_SCENERY_HAS_SECONDARY_COLOUR)
@@ -187,20 +187,20 @@ void fence_paint(paint_session* session, uint8_t direction, int32_t height, cons
         imageColourFlags &= 0x0DFFFFFFF;
     }
 
-    paint_util_set_general_support_height(session, height, 0x20);
+    paint_util_set_general_support_height(session, 8 * tile_element->clearance_height, 0x20);
 
     uint32_t dword_141F710 = 0;
     if (gTrackDesignSaveMode || (session->ViewFlags & VIEWPORT_FLAG_HIGHLIGHT_PATH_ISSUES))
     {
         if (!track_design_save_contains_tile_element(tile_element))
         {
-            dword_141F710 = SPRITE_ID_PALETTE_COLOUR_1(PALETTE_46);
+            dword_141F710 = SPRITE_ID_PALETTE_COLOUR_1(EnumValue(FilterPaletteID::Palette46));
         }
     }
 
     if (tile_element->IsGhost())
     {
-        session->InteractionType = VIEWPORT_INTERACTION_ITEM_NONE;
+        session->InteractionType = ViewportInteractionItem::None;
         dword_141F710 = CONSTRUCTION_MARKER;
     }
 
@@ -411,53 +411,46 @@ void fence_paint(paint_session* session, uint8_t direction, int32_t height, cons
         return;
     }
 
-    set_format_arg(0, uint32_t, 0);
-    set_format_arg(4, uint32_t, 0);
-
-    uint8_t secondaryColour = tile_element->AsWall()->GetSecondaryColour();
-
+    auto secondaryColour = tile_element->AsWall()->GetSecondaryColour();
     if (dword_141F710 != 0)
     {
         secondaryColour = COLOUR_GREY;
     }
-
     if (direction == 0)
     {
-        secondaryColour |= 0x80;
-    }
-
-    set_format_arg(7, uint8_t, secondaryColour);
-
-    uint16_t scrollingMode = sceneryEntry->wall.scrolling_mode + ((direction + 1) & 0x3);
-
-    uint8_t bannerIndex = tile_element->AsWall()->GetBannerIndex();
-    rct_banner* banner = &gBanners[bannerIndex];
-
-    set_format_arg(0, rct_string_id, banner->string_idx);
-    if (banner->flags & BANNER_FLAG_LINKED_TO_RIDE)
-    {
-        Ride* ride = get_ride(banner->ride_index);
-        set_format_arg(0, rct_string_id, ride->name);
-        set_format_arg(2, uint32_t, ride->name_arguments);
-    }
-
-    utf8 signString[256];
-    rct_string_id stringId = STR_SCROLLING_SIGN_TEXT;
-    if (gConfigGeneral.upper_case_banners)
-    {
-        format_string_to_upper(signString, sizeof(signString), stringId, gCommonFormatArgs);
+        secondaryColour = ColourMapA[secondaryColour].mid_dark;
     }
     else
     {
-        format_string(signString, sizeof(signString), stringId, gCommonFormatArgs);
+        secondaryColour = ColourMapA[secondaryColour].light;
     }
 
-    gCurrentFontSpriteBase = FONT_SPRITE_BASE_TINY;
+    uint16_t scrollingMode = sceneryEntry->wall.scrolling_mode + ((direction + 1) & 0x3);
+    if (scrollingMode >= MAX_SCROLLING_TEXT_MODES)
+    {
+        return;
+    }
 
-    uint16_t string_width = gfx_get_string_width(signString);
-    uint16_t scroll = (gCurrentTicks / 2) % string_width;
+    auto banner = tile_element->AsWall()->GetBanner();
+    if (banner != nullptr && !banner->IsNull())
+    {
+        auto ft = Formatter();
+        banner->FormatTextTo(ft);
+        utf8 signString[256];
+        if (gConfigGeneral.upper_case_banners)
+        {
+            format_string_to_upper(signString, sizeof(signString), STR_SCROLLING_SIGN_TEXT, ft.Data());
+        }
+        else
+        {
+            format_string(signString, sizeof(signString), STR_SCROLLING_SIGN_TEXT, ft.Data());
+        }
 
-    sub_98199C(
-        session, scrolling_text_setup(session, stringId, scroll, scrollingMode), 0, 0, 1, 1, 13, height + 8, boundsOffset.x,
-        boundsOffset.y, boundsOffset.z);
+        uint16_t stringWidth = gfx_get_string_width(signString, FontSpriteBase::TINY);
+        uint16_t scroll = stringWidth > 0 ? (gCurrentTicks / 2) % stringWidth : 0;
+
+        PaintAddImageAsChild(
+            session, scrolling_text_setup(session, STR_SCROLLING_SIGN_TEXT, ft, scroll, scrollingMode, secondaryColour), 0, 0,
+            1, 1, 13, height + 8, boundsOffset.x, boundsOffset.y, boundsOffset.z);
+    }
 }

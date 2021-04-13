@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (c) 2014-2019 OpenRCT2 developers
+ * Copyright (c) 2014-2020 OpenRCT2 developers
  *
  * For a complete list of all authors, please refer to contributors.md
  * Interested in contributing? Visit https://github.com/OpenRCT2/OpenRCT2
@@ -18,12 +18,13 @@
 #define CHAT_MAX_WINDOW_WIDTH 600
 
 struct rct_drawpixelinfo;
+struct ScreenCoordsXY;
 
-enum CHAT_INPUT
+enum class ChatInput : uint8_t
 {
-    CHAT_INPUT_NONE,
-    CHAT_INPUT_SEND,
-    CHAT_INPUT_CLOSE,
+    None,
+    Send,
+    Close,
 };
 
 extern bool gChatOpen;
@@ -38,9 +39,8 @@ void chat_update();
 void chat_draw(rct_drawpixelinfo* dpi, uint8_t chatBackgroundColour);
 
 void chat_history_add(const char* src);
-void chat_input(CHAT_INPUT input);
+void chat_input(ChatInput input);
 
 int32_t chat_string_wrapped_get_height(void* args, int32_t width);
-int32_t chat_history_draw_string(rct_drawpixelinfo* dpi, void* args, int32_t x, int32_t y, int32_t width);
 
 #endif

@@ -33,6 +33,9 @@ protected:
 
         load_from_sv6(parkPath.c_str());
         game_load_init();
+
+        // Changed in some tests. Store to restore its value
+        _gScreenFlags = gScreenFlags;
         SUCCEED();
     }
 
@@ -40,18 +43,22 @@ protected:
     {
         if (_context)
             _context.reset();
+
+        gScreenFlags = _gScreenFlags;
     }
 
 private:
     static std::shared_ptr<IContext> _context;
+    static uint8_t _gScreenFlags;
 };
 
 std::shared_ptr<IContext> TileElementWantsFootpathConnection::_context;
+uint8_t TileElementWantsFootpathConnection::_gScreenFlags;
 
 TEST_F(TileElementWantsFootpathConnection, FlatPath)
 {
     // Flat paths want to connect to other paths in any direction
-    const TileElement* const pathElement = map_get_footpath_element(19, 18, 14);
+    const TileElement* const pathElement = map_get_footpath_element(TileCoordsXYZ{ 19, 18, 14 }.ToCoordsXYZ());
     ASSERT_NE(pathElement, nullptr);
     EXPECT_TRUE(tile_element_wants_path_connection_towards({ 19, 18, 14, 0 }, nullptr));
     EXPECT_TRUE(tile_element_wants_path_connection_towards({ 19, 18, 14, 1 }, nullptr));
@@ -63,7 +70,7 @@ TEST_F(TileElementWantsFootpathConnection, FlatPath)
 TEST_F(TileElementWantsFootpathConnection, SlopedPath)
 {
     // Sloped paths only want to connect in two directions, of which is one at a higher offset
-    const TileElement* const slopedPathElement = map_get_footpath_element(18, 18, 14);
+    const TileElement* const slopedPathElement = map_get_footpath_element(TileCoordsXYZ{ 18, 18, 14 }.ToCoordsXYZ());
     ASSERT_NE(slopedPathElement, nullptr);
     ASSERT_TRUE(slopedPathElement->AsPath()->IsSloped());
     // Bottom and top of sloped path want a path connection
@@ -82,7 +89,8 @@ TEST_F(TileElementWantsFootpathConnection, SlopedPath)
 TEST_F(TileElementWantsFootpathConnection, Stall)
 {
     // Stalls usually have one path direction flag, but can have multiple (info kiosk for example)
-    const TrackElement* const stallElement = map_get_track_element_at(19 << 5, 15 << 5, 14);
+    auto tileCoords = TileCoordsXYZ{ 19, 15, 14 };
+    const TrackElement* const stallElement = map_get_track_element_at(tileCoords.ToCoordsXYZ());
     ASSERT_NE(stallElement, nullptr);
     EXPECT_TRUE(tile_element_wants_path_connection_towards({ 19, 15, 14, 0 }, nullptr));
     EXPECT_FALSE(tile_element_wants_path_connection_towards({ 19, 15, 14, 1 }, nullptr));
@@ -94,7 +102,8 @@ TEST_F(TileElementWantsFootpathConnection, Stall)
 TEST_F(TileElementWantsFootpathConnection, RideEntrance)
 {
     // Ride entrances and exits want a connection in one direction
-    const EntranceElement* const entranceElement = map_get_ride_entrance_element_at(18 << 5, 8 << 5, 14, false);
+    const EntranceElement* const entranceElement = map_get_ride_entrance_element_at(
+        TileCoordsXYZ{ 18, 8, 14 }.ToCoordsXYZ(), false);
     ASSERT_NE(entranceElement, nullptr);
     EXPECT_TRUE(tile_element_wants_path_connection_towards({ 18, 8, 14, 0 }, nullptr));
     EXPECT_FALSE(tile_element_wants_path_connection_towards({ 18, 8, 14, 1 }, nullptr));
@@ -106,7 +115,7 @@ TEST_F(TileElementWantsFootpathConnection, RideEntrance)
 TEST_F(TileElementWantsFootpathConnection, RideExit)
 {
     // The exit has been rotated; it wants a path connection in direction 1, but not 0 like the entrance
-    const EntranceElement* const exitElement = map_get_ride_exit_element_at(18 << 5, 10 << 5, 14, false);
+    const EntranceElement* const exitElement = map_get_ride_exit_element_at(TileCoordsXYZ{ 18, 10, 14 }.ToCoordsXYZ(), false);
     ASSERT_NE(exitElement, nullptr);
     EXPECT_FALSE(tile_element_wants_path_connection_towards({ 18, 10, 14, 0 }, nullptr));
     EXPECT_TRUE(tile_element_wants_path_connection_towards({ 18, 10, 14, 1 }, nullptr));
@@ -137,4 +146,28 @@ TEST_F(TileElementWantsFootpathConnection, DifferentHeight)
     EXPECT_FALSE(tile_element_wants_path_connection_towards({ 18, 8, 24, 0 }, nullptr));
     EXPECT_FALSE(tile_element_wants_path_connection_towards({ 18, 10, 24, 1 }, nullptr));
     SUCCEED();
+}
+
+TEST_F(TileElementWantsFootpathConnection, MapEdge)
+{
+    // Paths at the map edge should have edge flags turned on when placed in scenario editor
+    // This tile is a single, unconnected footpath on the map edge - on load, GetEdges() returns 0
+    TileElement* pathElement = map_get_footpath_element(TileCoordsXYZ{ 1, 4, 14 }.ToCoordsXYZ());
+
+    // Enable flag to simulate enabling the scenario editor
+    gScreenFlags |= SCREEN_FLAGS_SCENARIO_EDITOR;
+
+    // Calculate the connected edges and set the appropriate edge flags
+    footpath_connect_edges({ 16, 64 }, pathElement, 0);
+    auto edges = pathElement->AsPath()->GetEdges();
+
+    // The tiles alongside in the Y direction are both on the map edge so should be marked as an edge
+    EXPECT_TRUE(edges & (1 << 1));
+    EXPECT_TRUE(edges & (1 << 3));
+
+    // The tile in the -X direction is off the map so should be marked as an edge
+    EXPECT_TRUE(edges & (1 << 0));
+
+    // The tile in the -X direction is a normal tile and should not be marked as an edge
+    EXPECT_FALSE(edges & (1 << 2));
 }

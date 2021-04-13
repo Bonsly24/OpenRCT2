@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (c) 2014-2019 OpenRCT2 developers
+ * Copyright (c) 2014-2020 OpenRCT2 developers
  *
  * For a complete list of all authors, please refer to contributors.md
  * Interested in contributing? Visit https://github.com/OpenRCT2/OpenRCT2
@@ -16,13 +16,13 @@
 #include "../core/Console.hpp"
 #include "../core/File.h"
 #include "../core/FileIndex.hpp"
-#include "../core/FileStream.hpp"
+#include "../core/FileStream.h"
 #include "../core/Path.hpp"
 #include "../core/String.hpp"
 #include "../localisation/LocalisationService.h"
 #include "../object/ObjectRepository.h"
-#include "../object/RideObject.h"
-#include "RideGroupManager.h"
+#include "../ride/RideData.h"
+#include "../util/Util.h"
 #include "TrackDesign.h"
 
 #include <algorithm>
@@ -35,7 +35,7 @@ struct TrackRepositoryItem
 {
     std::string Name;
     std::string Path;
-    uint8_t RideType = 0;
+    uint8_t RideType = RIDE_TYPE_NULL;
     std::string ObjectEntry;
     uint32_t Flags = 0;
 };
@@ -57,18 +57,18 @@ class TrackDesignFileIndex final : public FileIndex<TrackRepositoryItem>
 {
 private:
     static constexpr uint32_t MAGIC_NUMBER = 0x58444954; // TIDX
-    static constexpr uint16_t VERSION = 2;
+    static constexpr uint16_t VERSION = 4;
     static constexpr auto PATTERN = "*.td4;*.td6";
 
 public:
     explicit TrackDesignFileIndex(const IPlatformEnvironment& env)
         : FileIndex(
-              "track design index", MAGIC_NUMBER, VERSION, env.GetFilePath(PATHID::CACHE_TRACKS), std::string(PATTERN),
-              std::vector<std::string>({
-                  env.GetDirectoryPath(DIRBASE::RCT1, DIRID::TRACK),
-                  env.GetDirectoryPath(DIRBASE::RCT2, DIRID::TRACK),
-                  env.GetDirectoryPath(DIRBASE::USER, DIRID::TRACK),
-              }))
+            "track design index", MAGIC_NUMBER, VERSION, env.GetFilePath(PATHID::CACHE_TRACKS), std::string(PATTERN),
+            std::vector<std::string>({
+                env.GetDirectoryPath(DIRBASE::RCT1, DIRID::TRACK),
+                env.GetDirectoryPath(DIRBASE::RCT2, DIRID::TRACK),
+                env.GetDirectoryPath(DIRBASE::USER, DIRID::TRACK),
+            }))
     {
     }
 
@@ -88,7 +88,6 @@ public:
             {
                 item.Flags |= TRIF_READ_ONLY;
             }
-            track_design_dispose(td6);
             return std::make_tuple(true, item);
         }
         else
@@ -98,24 +97,13 @@ public:
     }
 
 protected:
-    void Serialise(IStream* stream, const TrackRepositoryItem& item) const override
+    void Serialise(DataSerialiser& ds, TrackRepositoryItem& item) const override
     {
-        stream->WriteString(item.Name);
-        stream->WriteString(item.Path);
-        stream->WriteValue(item.RideType);
-        stream->WriteString(item.ObjectEntry);
-        stream->WriteValue(item.Flags);
-    }
-
-    TrackRepositoryItem Deserialise(IStream* stream) const override
-    {
-        TrackRepositoryItem item;
-        item.Name = stream->ReadStdString();
-        item.Path = stream->ReadStdString();
-        item.RideType = stream->ReadValue<uint8_t>();
-        item.ObjectEntry = stream->ReadStdString();
-        item.Flags = stream->ReadValue<uint32_t>();
-        return item;
+        ds << item.Name;
+        ds << item.Path;
+        ds << item.RideType;
+        ds << item.ObjectEntry;
+        ds << item.Flags;
     }
 
 private:
@@ -165,9 +153,9 @@ public:
             bool entryIsNotSeparate = false;
             if (entry.empty())
             {
-                const ObjectRepositoryItem* ori = repo.FindObject(item.ObjectEntry.c_str());
+                const ObjectRepositoryItem* ori = repo.FindObjectLegacy(item.ObjectEntry.c_str());
 
-                if (ori == nullptr || !RideGroupManager::RideTypeIsIndependent(rideType))
+                if (ori == nullptr || !GetRideTypeDescriptor(rideType).HasFlag(RIDE_TYPE_FLAG_LIST_VEHICLES_SEPARATELY))
                     entryIsNotSeparate = true;
             }
 
@@ -176,31 +164,6 @@ public:
                 count++;
             }
         }
-        return count;
-    }
-
-    size_t GetCountForRideGroup(uint8_t rideType, const RideGroup* rideGroup) const override
-    {
-        size_t count = 0;
-        const auto& repo = GetContext()->GetObjectRepository();
-
-        for (const auto& item : _items)
-        {
-            if (item.RideType != rideType)
-            {
-                continue;
-            }
-
-            const ObjectRepositoryItem* ori = repo.FindObject(item.ObjectEntry.c_str());
-            uint8_t rideGroupIndex = (ori != nullptr) ? ori->RideInfo.RideGroupIndex : 0;
-            const RideGroup* itemRideGroup = RideGroupManager::RideGroupFind(rideType, rideGroupIndex);
-
-            if (itemRideGroup != nullptr && itemRideGroup->Equals(rideGroup))
-            {
-                count++;
-            }
-        }
-
         return count;
     }
 
@@ -224,41 +187,13 @@ public:
             bool entryIsNotSeparate = false;
             if (entry.empty())
             {
-                const ObjectRepositoryItem* ori = repo.FindObject(item.ObjectEntry.c_str());
+                const ObjectRepositoryItem* ori = repo.FindObjectLegacy(item.ObjectEntry.c_str());
 
-                if (ori == nullptr || !RideGroupManager::RideTypeIsIndependent(rideType))
+                if (ori == nullptr || !GetRideTypeDescriptor(rideType).HasFlag(RIDE_TYPE_FLAG_LIST_VEHICLES_SEPARATELY))
                     entryIsNotSeparate = true;
             }
 
             if (entryIsNotSeparate || String::Equals(item.ObjectEntry, entry, true))
-            {
-                track_design_file_ref ref;
-                ref.name = String::Duplicate(GetNameFromTrackPath(item.Path));
-                ref.path = String::Duplicate(item.Path);
-                refs.push_back(ref);
-            }
-        }
-
-        return refs;
-    }
-
-    std::vector<track_design_file_ref> GetItemsForRideGroup(uint8_t rideType, const RideGroup* rideGroup) const override
-    {
-        std::vector<track_design_file_ref> refs;
-        const auto& repo = GetContext()->GetObjectRepository();
-
-        for (const auto& item : _items)
-        {
-            if (item.RideType != rideType)
-            {
-                continue;
-            }
-
-            const ObjectRepositoryItem* ori = repo.FindObject(item.ObjectEntry.c_str());
-            uint8_t rideGroupIndex = (ori != nullptr) ? ori->RideInfo.RideGroupIndex : 0;
-            const RideGroup* itemRideGroup = RideGroupManager::RideGroupFind(rideType, rideGroupIndex);
-
-            if (itemRideGroup != nullptr && itemRideGroup->Equals(rideGroup))
             {
                 track_design_file_ref ref;
                 ref.name = String::Duplicate(GetNameFromTrackPath(item.Path));
@@ -324,20 +259,19 @@ public:
         return result;
     }
 
-    std::string Install(const std::string& path) override
+    std::string Install(const std::string& path, const std::string& name) override
     {
         std::string result;
-        std::string fileName = Path::GetFileName(path);
         std::string installDir = _env->GetDirectoryPath(DIRBASE::USER, DIRID::TRACK);
 
-        std::string newPath = Path::Combine(installDir, fileName);
+        std::string newPath = Path::Combine(installDir, name + Path::GetExtension(path));
         if (File::Copy(path, newPath, false))
         {
             auto language = LocalisationService_GetCurrentLanguage();
-            auto td = _fileIndex.Create(language, path);
+            auto td = _fileIndex.Create(language, newPath);
             if (std::get<0>(td))
             {
-                _items.push_back(std::get<1>(td));
+                _items.push_back(std::move(std::get<1>(td)));
                 SortItems();
                 result = path;
             }
@@ -353,7 +287,7 @@ private:
             {
                 return a.RideType < b.RideType;
             }
-            return String::Compare(a.Name, b.Name) < 0;
+            return strlogicalcmp(a.Name.c_str(), b.Name.c_str()) < 0;
         });
     }
 
@@ -405,9 +339,9 @@ bool track_repository_rename(const utf8* path, const utf8* newName)
     return !newPath.empty();
 }
 
-bool track_repository_install(const utf8* srcPath)
+bool track_repository_install(const utf8* srcPath, const utf8* name)
 {
     ITrackDesignRepository* repo = GetContext()->GetTrackDesignRepository();
-    std::string newPath = repo->Install(srcPath);
+    std::string newPath = repo->Install(srcPath, name);
     return !newPath.empty();
 }

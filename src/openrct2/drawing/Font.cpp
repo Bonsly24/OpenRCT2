@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (c) 2014-2019 OpenRCT2 developers
+ * Copyright (c) 2014-2020 OpenRCT2 developers
  *
  * For a complete list of all authors, please refer to contributors.md
  * Interested in contributing? Visit https://github.com/OpenRCT2/OpenRCT2
@@ -53,12 +53,15 @@ static const std::unordered_map<char32_t, int32_t> codepointOffsetMap = {
     { UnicodeChar::g_breve, SPR_G2_G_BREVE_LOWER - SPR_CHAR_START },
     { UnicodeChar::i_with_dot_uc, SPR_G2_I_WITH_DOT_UPPER - SPR_CHAR_START },
     { UnicodeChar::i_without_dot, SPR_G2_I_WITHOUT_DOT_LOWER - SPR_CHAR_START },
+    { UnicodeChar::j, SPR_G2_J - SPR_CHAR_START },
+    { UnicodeChar::l, SPR_G2_L - SPR_CHAR_START },
     { UnicodeChar::l_stroke_uc, CSChar::l_stroke_uc - CS_SPRITE_FONT_OFFSET },
     { UnicodeChar::l_stroke, CSChar::l_stroke - CS_SPRITE_FONT_OFFSET },
     { UnicodeChar::n_acute_uc, CSChar::n_acute_uc - CS_SPRITE_FONT_OFFSET },
     { UnicodeChar::n_acute, CSChar::n_acute - CS_SPRITE_FONT_OFFSET },
     { UnicodeChar::n_caron_uc, SPR_G2_N_CARON_UPPER - SPR_CHAR_START },
     { UnicodeChar::n_caron, SPR_G2_N_CARON_LOWER - SPR_CHAR_START },
+    { UnicodeChar::o_macron, CSChar::o_circumflex - CS_SPRITE_FONT_OFFSET }, // No visual difference
     { UnicodeChar::o_double_acute_uc, SPR_G2_O_DOUBLE_ACUTE_UPPER - SPR_CHAR_START },
     { UnicodeChar::o_double_acute, SPR_G2_O_DOUBLE_ACUTE_LOWER - SPR_CHAR_START },
     { UnicodeChar::r_caron_uc, SPR_G2_R_CARON_UPPER - SPR_CHAR_START },
@@ -87,6 +90,18 @@ static const std::unordered_map<char32_t, int32_t> codepointOffsetMap = {
     { UnicodeChar::t_comma_uc, SPR_G2_T_COMMA_UPPER - SPR_CHAR_START },
     { UnicodeChar::t_comma, SPR_G2_T_COMMA_LOWER - SPR_CHAR_START },
     { UnicodeChar::sharp_s_uc, 223 - CS_SPRITE_FONT_OFFSET },
+    { UnicodeChar::c_circumflex_uc, SPR_G2_C_CIRCUMFLEX_UPPER - SPR_CHAR_START },
+    { UnicodeChar::c_circumflex, SPR_G2_C_CIRCUMFLEX_LOWER - SPR_CHAR_START },
+    { UnicodeChar::g_circumflex_uc, SPR_G2_G_CIRCUMFLEX_UPPER - SPR_CHAR_START },
+    { UnicodeChar::g_circumflex, SPR_G2_G_CIRCUMFLEX_LOWER - SPR_CHAR_START },
+    { UnicodeChar::h_circumflex_uc, SPR_G2_H_CIRCUMFLEX_UPPER - SPR_CHAR_START },
+    { UnicodeChar::h_circumflex, SPR_G2_H_CIRCUMFLEX_LOWER - SPR_CHAR_START },
+    { UnicodeChar::j_circumflex_uc, SPR_G2_J_CIRCUMFLEX_UPPER - SPR_CHAR_START },
+    { UnicodeChar::j_circumflex, SPR_G2_J_CIRCUMFLEX_LOWER - SPR_CHAR_START },
+    { UnicodeChar::s_circumflex_uc, SPR_G2_S_CIRCUMFLEX_UPPER - SPR_CHAR_START },
+    { UnicodeChar::s_circumflex, SPR_G2_S_CIRCUMFLEX_LOWER - SPR_CHAR_START },
+    { UnicodeChar::u_breve_uc, SPR_G2_U_BREVE_UPPER - SPR_CHAR_START },
+    { UnicodeChar::u_breve, SPR_G2_U_BREVE_LOWER - SPR_CHAR_START },
 
     // Cyrillic alphabet
     { UnicodeChar::cyrillic_io_uc, 203 - CS_SPRITE_FONT_OFFSET }, // Looks just like Ë
@@ -160,6 +175,8 @@ static const std::unordered_map<char32_t, int32_t> codepointOffsetMap = {
     // Punctuation
     { UnicodeChar::non_breaking_space, ' ' - CS_SPRITE_FONT_OFFSET },
     { UnicodeChar::interpunct, SPR_G2_INTERPUNCT - SPR_CHAR_START },
+    { UnicodeChar::multiplication_sign, CSChar::cross - CS_SPRITE_FONT_OFFSET },
+    { UnicodeChar::en_dash, '-' - CS_SPRITE_FONT_OFFSET },
     { UnicodeChar::single_quote_open, '`' - CS_SPRITE_FONT_OFFSET },
     { UnicodeChar::single_quote_end, '\'' - CS_SPRITE_FONT_OFFSET },
     { UnicodeChar::single_german_quote_open, ',' - CS_SPRITE_FONT_OFFSET },
@@ -208,7 +225,7 @@ void font_sprite_initialise_characters()
 {
     // Compute min and max that helps avoiding lookups for no reason.
     _smallestCodepointValue = std::numeric_limits<char32_t>::max();
-    for (const auto entry : codepointOffsetMap)
+    for (const auto& entry : codepointOffsetMap)
     {
         _smallestCodepointValue = std::min(_smallestCodepointValue, entry.first);
         _biggestCodepointValue = std::max(_biggestCodepointValue, entry.first);
@@ -223,13 +240,10 @@ void font_sprite_initialise_characters()
             int32_t width = 0;
             if (g1 != nullptr)
             {
-                if (glyphIndex < (FORMAT_ARGUMENT_CODE_START - 32) || glyphIndex >= (FORMAT_COLOUR_CODE_END - 32))
-                {
-                    width = (g1->width + 2 * g1->x_offset) - 1;
-                }
+                width = g1->width + (2 * g1->x_offset) - 1;
             }
 
-            _spriteFontCharacterWidths[fontSize][glyphIndex] = (uint8_t)width;
+            _spriteFontCharacterWidths[fontSize][glyphIndex] = static_cast<uint8_t>(width);
         }
     }
 
@@ -245,7 +259,7 @@ void font_sprite_initialise_characters()
                 width = g1->width + (2 * g1->x_offset) - 1;
             }
 
-            _additionalSpriteFontCharacterWidth[fontSize][glyphIndex] = (uint8_t)width;
+            _additionalSpriteFontCharacterWidth[fontSize][glyphIndex] = static_cast<uint8_t>(width);
         }
     }
 
@@ -269,12 +283,11 @@ int32_t font_sprite_get_codepoint_offset(int32_t codepoint)
     return codepoint - 32;
 }
 
-int32_t font_sprite_get_codepoint_width(uint16_t fontSpriteBase, int32_t codepoint)
+int32_t font_sprite_get_codepoint_width(FontSpriteBase fontSpriteBase, int32_t codepoint)
 {
-    if (fontSpriteBase == (uint16_t)FONT_SPRITE_BASE_MEDIUM_DARK
-        || fontSpriteBase == (uint16_t)FONT_SPRITE_BASE_MEDIUM_EXTRA_DARK)
+    if (fontSpriteBase == FontSpriteBase::MEDIUM_DARK || fontSpriteBase == FontSpriteBase::MEDIUM_EXTRA_DARK)
     {
-        fontSpriteBase = (uint16_t)FONT_SPRITE_BASE_MEDIUM;
+        fontSpriteBase = FontSpriteBase::MEDIUM;
     }
 
     int32_t glyphIndex = font_sprite_get_codepoint_offset(codepoint);
@@ -283,14 +296,14 @@ int32_t font_sprite_get_codepoint_width(uint16_t fontSpriteBase, int32_t codepoi
     {
         glyphIndex = (SPR_CHAR_START + glyphIndex) - SPR_G2_CHAR_BEGIN;
 
-        if (glyphIndex >= (int32_t)std::size(_additionalSpriteFontCharacterWidth[baseFontIndex]))
+        if (glyphIndex >= static_cast<int32_t>(std::size(_additionalSpriteFontCharacterWidth[baseFontIndex])))
         {
             log_warning("Invalid glyph index %u", glyphIndex);
             glyphIndex = 0;
         }
         return _additionalSpriteFontCharacterWidth[baseFontIndex][glyphIndex];
     }
-    else if (glyphIndex < 0 || glyphIndex >= (int32_t)FONT_SPRITE_GLYPH_COUNT)
+    else if (glyphIndex < 0 || glyphIndex >= static_cast<int32_t>(FONT_SPRITE_GLYPH_COUNT))
     {
         log_warning("Invalid glyph index %u", glyphIndex);
         glyphIndex = 0;
@@ -298,46 +311,47 @@ int32_t font_sprite_get_codepoint_width(uint16_t fontSpriteBase, int32_t codepoi
     return _spriteFontCharacterWidths[baseFontIndex][glyphIndex];
 }
 
-int32_t font_sprite_get_codepoint_sprite(int32_t fontSpriteBase, int32_t codepoint)
+int32_t font_sprite_get_codepoint_sprite(FontSpriteBase fontSpriteBase, int32_t codepoint)
 {
+    int32_t offset = static_cast<int32_t>(fontSpriteBase);
     auto codePointOffset = font_sprite_get_codepoint_offset(codepoint);
     if (codePointOffset > FONT_SPRITE_GLYPH_COUNT)
     {
-        fontSpriteBase = font_get_font_index_from_sprite_base(fontSpriteBase) * SPR_G2_GLYPH_COUNT;
+        offset = font_get_font_index_from_sprite_base(fontSpriteBase) * SPR_G2_GLYPH_COUNT;
     }
 
-    return SPR_CHAR_START + (IMAGE_TYPE_REMAP | (fontSpriteBase + codePointOffset));
+    return SPR_CHAR_START + (IMAGE_TYPE_REMAP | (offset + codePointOffset));
 }
 
-int32_t font_get_font_index_from_sprite_base(uint16_t spriteBase)
+int32_t font_get_font_index_from_sprite_base(FontSpriteBase spriteBase)
 {
     switch (spriteBase)
     {
-        case FONT_SPRITE_BASE_TINY:
+        case FontSpriteBase::TINY:
             return FONT_SIZE_TINY;
-        case FONT_SPRITE_BASE_SMALL:
+        case FontSpriteBase::SMALL:
             return FONT_SIZE_SMALL;
         default:
-        case FONT_SPRITE_BASE_MEDIUM:
+        case FontSpriteBase::MEDIUM:
             return FONT_SIZE_MEDIUM;
     }
 }
 
-int32_t font_get_size_from_sprite_base(uint16_t spriteBase)
+int32_t font_get_size_from_sprite_base(FontSpriteBase spriteBase)
 {
     switch (spriteBase)
     {
-        case FONT_SPRITE_BASE_TINY:
+        case FontSpriteBase::TINY:
             return 0;
-        case FONT_SPRITE_BASE_SMALL:
+        case FontSpriteBase::SMALL:
             return 1;
         default:
-        case FONT_SPRITE_BASE_MEDIUM:
+        case FontSpriteBase::MEDIUM:
             return 2;
     }
 }
 
-int32_t font_get_line_height(int32_t fontSpriteBase)
+int32_t font_get_line_height(FontSpriteBase fontSpriteBase)
 {
     int32_t fontSize = font_get_size_from_sprite_base(fontSpriteBase);
 #ifndef NO_TTF
@@ -354,7 +368,7 @@ int32_t font_get_line_height(int32_t fontSpriteBase)
 #endif // NO_TTF
 }
 
-int32_t font_get_line_height_small(int32_t fontSpriteBase)
+int32_t font_get_line_height_small(FontSpriteBase fontSpriteBase)
 {
     return font_get_line_height(fontSpriteBase) / 2;
 }

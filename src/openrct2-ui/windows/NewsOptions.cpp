@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (c) 2014-2019 OpenRCT2 developers
+ * Copyright (c) 2014-2020 OpenRCT2 developers
  *
  * For a complete list of all authors, please refer to contributors.md
  * Interested in contributing? Visit https://github.com/OpenRCT2/OpenRCT2
@@ -15,6 +15,10 @@
 #include <openrct2/drawing/Drawing.h>
 #include <openrct2/localisation/Localisation.h>
 #include <openrct2/sprites.h>
+
+static constexpr const rct_string_id WINDOW_TITLE = STR_NOTIFICATION_SETTINGS;
+static constexpr const int32_t WH = 300;
+static constexpr const int32_t WW = 400;
 
 // clang-format off
 enum {
@@ -36,10 +40,11 @@ static constexpr const notification_def NewsItemOptionDefinitions[] = {
     { NOTIFICATION_CATEGORY_PARK,   STR_NOTIFICATION_PARK_RATING_WARNINGS,              offsetof(NotificationConfiguration, park_rating_warnings)               },
     { NOTIFICATION_CATEGORY_RIDE,   STR_NOTIFICATION_RIDE_BROKEN_DOWN,                  offsetof(NotificationConfiguration, ride_broken_down)                   },
     { NOTIFICATION_CATEGORY_RIDE,   STR_NOTIFICATION_RIDE_CRASHED,                      offsetof(NotificationConfiguration, ride_crashed)                       },
+    { NOTIFICATION_CATEGORY_RIDE,   STR_NOTIFICATION_RIDE_CASUALTIES,                   offsetof(NotificationConfiguration, ride_casualties)                    },
     { NOTIFICATION_CATEGORY_RIDE,   STR_NOTIFICATION_RIDE_WARNINGS,                     offsetof(NotificationConfiguration, ride_warnings)                      },
     { NOTIFICATION_CATEGORY_RIDE,   STR_NOTIFICATION_RIDE_RESEARCHED,                   offsetof(NotificationConfiguration, ride_researched)                    },
+    { NOTIFICATION_CATEGORY_RIDE,   STR_NOTIFICATION_RIDE_VEHICLE_STALLED,              offsetof(NotificationConfiguration, ride_stalled_vehicles)              },
     { NOTIFICATION_CATEGORY_GUEST,  STR_NOTIFICATION_GUEST_WARNINGS,                    offsetof(NotificationConfiguration, guest_warnings)                     },
-    { NOTIFICATION_CATEGORY_GUEST,  STR_NOTIFICATION_GUEST_LOST,                        offsetof(NotificationConfiguration, guest_lost)                         },
     { NOTIFICATION_CATEGORY_GUEST,  STR_NOTIFICATION_GUEST_LEFT_PARK,                   offsetof(NotificationConfiguration, guest_left_park)                    },
     { NOTIFICATION_CATEGORY_GUEST,  STR_NOTIFICATION_GUEST_QUEUING_FOR_RIDE,            offsetof(NotificationConfiguration, guest_queuing_for_ride)             },
     { NOTIFICATION_CATEGORY_GUEST,  STR_NOTIFICATION_GUEST_ON_RIDE,                     offsetof(NotificationConfiguration, guest_on_ride)                      },
@@ -49,7 +54,7 @@ static constexpr const notification_def NewsItemOptionDefinitions[] = {
     { NOTIFICATION_CATEGORY_GUEST,  STR_NOTIFICATION_GUEST_DIED,                        offsetof(NotificationConfiguration, guest_died)                         },
 };
 
-enum WINDOW_NEWS_WIDGET_IDX {
+enum WINDOW_NEWS_OPTIONS_WIDGET_IDX {
     WIDX_BACKGROUND,
     WIDX_TITLE,
     WIDX_CLOSE,
@@ -61,24 +66,20 @@ enum WINDOW_NEWS_WIDGET_IDX {
 };
 
 static rct_widget window_news_options_widgets[] = {
-    { WWT_FRAME,            0,  0,          399,    0,      299,    0xFFFFFFFF,                     STR_NONE },             // panel / background
-    { WWT_CAPTION,          0,  1,          398,    1,      14,     STR_NOTIFICATION_SETTINGS,      STR_WINDOW_TITLE_TIP }, // title bar
-    { WWT_CLOSEBOX,         0,  387,        397,    2,      13,     STR_CLOSE_X,                    STR_CLOSE_WINDOW_TIP }, // close x button
-    { WWT_RESIZE,           1,  0,          399,    43,     299,    0xFFFFFFFF,                     STR_NONE },             // tab content panel
-    { WWT_TAB,              1,  3,          33,     17,     43,     IMAGE_TYPE_REMAP | SPR_TAB,           STR_NONE },             // tab 1
-    { WWT_TAB,              1,  34,         64,     17,     43,     IMAGE_TYPE_REMAP | SPR_TAB,           STR_NONE },             // tab 2
-    { WWT_TAB,              1,  65,         95,     17,     43,     IMAGE_TYPE_REMAP | SPR_TAB,           STR_NONE },             // tab 2
-
-    { WWT_CHECKBOX,         2,  7,          349,    49,     62,     STR_NONE,                       STR_NONE },
-    { WWT_CHECKBOX,         2,  0,          0,      0,      0,      STR_NONE,                       STR_NONE },
-    { WWT_CHECKBOX,         2,  0,          0,      0,      0,      STR_NONE,                       STR_NONE },
-    { WWT_CHECKBOX,         2,  0,          0,      0,      0,      STR_NONE,                       STR_NONE },
-    { WWT_CHECKBOX,         2,  0,          0,      0,      0,      STR_NONE,                       STR_NONE },
-    { WWT_CHECKBOX,         2,  0,          0,      0,      0,      STR_NONE,                       STR_NONE },
-    { WWT_CHECKBOX,         2,  0,          0,      0,      0,      STR_NONE,                       STR_NONE },
-    { WWT_CHECKBOX,         2,  0,          0,      0,      0,      STR_NONE,                       STR_NONE },
-    { WWT_CHECKBOX,         2,  0,          0,      0,      0,      STR_NONE,                       STR_NONE },
-
+    WINDOW_SHIM(WINDOW_TITLE, WW, WH),
+    MakeWidget({ 0, 43}, {400, 257}, WindowWidgetType::Resize,   WindowColour::Secondary), // tab content panel
+    MakeTab   ({ 3, 17}                                                   ), // tab 1
+    MakeTab   ({34, 17}                                                   ), // tab 2
+    MakeTab   ({65, 17}                                                   ), // tab 2
+    MakeWidget({ 7, 49}, {343,  14}, WindowWidgetType::Checkbox, WindowColour::Tertiary ),
+    MakeWidget({ 0,  0}, {343,  14}, WindowWidgetType::Checkbox, WindowColour::Tertiary ),
+    MakeWidget({ 0,  0}, {343,  14}, WindowWidgetType::Checkbox, WindowColour::Tertiary ),
+    MakeWidget({ 0,  0}, {343,  14}, WindowWidgetType::Checkbox, WindowColour::Tertiary ),
+    MakeWidget({ 0,  0}, {343,  14}, WindowWidgetType::Checkbox, WindowColour::Tertiary ),
+    MakeWidget({ 0,  0}, {343,  14}, WindowWidgetType::Checkbox, WindowColour::Tertiary ),
+    MakeWidget({ 0,  0}, {343,  14}, WindowWidgetType::Checkbox, WindowColour::Tertiary ),
+    MakeWidget({ 0,  0}, {343,  14}, WindowWidgetType::Checkbox, WindowColour::Tertiary ),
+    MakeWidget({ 0,  0}, {343,  14}, WindowWidgetType::Checkbox, WindowColour::Tertiary ),
     { WIDGETS_END },
 };
 
@@ -87,36 +88,13 @@ static void window_news_options_update(rct_window *w);
 static void window_news_options_invalidate(rct_window *w);
 static void window_news_options_paint(rct_window *w, rct_drawpixelinfo *dpi);
 
-static rct_window_event_list window_news_options_events = {
-    nullptr,
-    window_news_options_mouseup,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    window_news_options_update,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    window_news_options_invalidate,
-    window_news_options_paint,
-    nullptr
-};
+static rct_window_event_list window_news_options_events([](auto& events)
+{
+    events.mouse_up = &window_news_options_mouseup;
+    events.update = &window_news_options_update;
+    events.invalidate = &window_news_options_invalidate;
+    events.paint = &window_news_options_paint;
+});
 // clang-format on
 
 static void window_news_options_set_page(rct_window* w, int32_t page);
@@ -131,10 +109,10 @@ rct_window* window_news_options_open()
     window = window_bring_to_front_by_class(WC_NOTIFICATION_OPTIONS);
     if (window == nullptr)
     {
-        window = window_create_centred(400, 300, &window_news_options_events, WC_NOTIFICATION_OPTIONS, 0);
+        window = WindowCreateCentred(400, 300, &window_news_options_events, WC_NOTIFICATION_OPTIONS, 0);
         window->widgets = window_news_options_widgets;
         window->enabled_widgets = (1 << WIDX_CLOSE) | (1 << WIDX_TAB_PARK) | (1 << WIDX_TAB_RIDE) | (1 << WIDX_TAB_GUEST);
-        window_init_scroll_widgets(window);
+        WindowInitScrollWidgets(window);
         window->colours[0] = COLOUR_GREY;
         window->colours[1] = COLOUR_LIGHT_BLUE;
         window->colours[2] = COLOUR_LIGHT_BLUE;
@@ -214,7 +192,7 @@ static void window_news_options_invalidate(rct_window* w)
 
         w->enabled_widgets |= (1ULL << checkboxWidgetIndex);
 
-        checkboxWidget->type = WWT_CHECKBOX;
+        checkboxWidget->type = WindowWidgetType::Checkbox;
         checkboxWidget->left = baseCheckBox->left;
         checkboxWidget->right = baseCheckBox->right;
         checkboxWidget->top = y;
@@ -222,7 +200,7 @@ static void window_news_options_invalidate(rct_window* w)
         checkboxWidget->text = ndef->caption;
 
         const bool* configValue = get_notification_value_ptr(ndef);
-        widget_set_checkbox_value(w, checkboxWidgetIndex, *configValue);
+        WidgetSetCheckboxValue(w, checkboxWidgetIndex, *configValue);
 
         checkboxWidgetIndex++;
         checkboxWidget++;
@@ -230,11 +208,11 @@ static void window_news_options_invalidate(rct_window* w)
     }
 
     // Remove unused checkboxes
-    while (checkboxWidget->type != WWT_LAST)
+    while (checkboxWidget->type != WindowWidgetType::Last)
     {
         w->enabled_widgets &= ~(1ULL << checkboxWidgetIndex);
 
-        checkboxWidget->type = WWT_EMPTY;
+        checkboxWidget->type = WindowWidgetType::Empty;
         checkboxWidgetIndex++;
         checkboxWidget++;
     }
@@ -244,17 +222,17 @@ static void window_news_options_invalidate(rct_window* w)
 
     if (w->height != y)
     {
-        window_invalidate(w);
+        w->Invalidate();
         w->height = y;
         w->widgets[WIDX_BACKGROUND].bottom = y - 1;
         w->widgets[WIDX_TAB_CONTENT_PANEL].bottom = y - 1;
-        window_invalidate(w);
+        w->Invalidate();
     }
 }
 
 static void window_news_options_paint(rct_window* w, rct_drawpixelinfo* dpi)
 {
-    window_draw_widgets(w, dpi);
+    WindowDrawWidgets(w, dpi);
     window_news_options_draw_tab_images(w, dpi);
 }
 
@@ -264,7 +242,7 @@ static void window_news_options_set_page(rct_window* w, int32_t page)
     {
         w->page = page;
         w->frame_no = 0;
-        window_invalidate(w);
+        w->Invalidate();
     }
 }
 
@@ -287,7 +265,9 @@ static void window_news_options_draw_tab_image(rct_window* w, rct_drawpixelinfo*
             }
         }
 
-        gfx_draw_sprite(dpi, spriteIndex, w->x + w->widgets[widgetIndex].left, w->y + w->widgets[widgetIndex].top, 0);
+        gfx_draw_sprite(
+            dpi, ImageId(spriteIndex),
+            w->windowPos + ScreenCoordsXY{ w->widgets[widgetIndex].left, w->widgets[widgetIndex].top });
     }
 }
 
@@ -300,6 +280,6 @@ static void window_news_options_draw_tab_images(rct_window* w, rct_drawpixelinfo
 
 static bool* get_notification_value_ptr(const notification_def* ndef)
 {
-    bool* configValue = (bool*)((size_t)&gConfigNotifications + ndef->config_offset);
+    bool* configValue = reinterpret_cast<bool*>(reinterpret_cast<size_t>(&gConfigNotifications) + ndef->config_offset);
     return configValue;
 }

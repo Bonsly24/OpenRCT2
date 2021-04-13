@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (c) 2014-2019 OpenRCT2 developers
+ * Copyright (c) 2014-2020 OpenRCT2 developers
  *
  * For a complete list of all authors, please refer to contributors.md
  * Interested in contributing? Visit https://github.com/OpenRCT2/OpenRCT2
@@ -9,6 +9,7 @@
 
 #pragma once
 
+#include "../core/IStream.hpp"
 #include "../ride/Ride.h"
 #include "Object.h"
 
@@ -20,7 +21,7 @@ private:
     rct_ride_entry _legacyType = {};
     vehicle_colour_preset_list _presetColours = {};
     std::vector<int8_t> _peepLoadingPositions[MAX_VEHICLES_PER_RIDE_ENTRY];
-    std::vector<std::array<sLocationXY8, 3>> _peepLoadingWaypoints[MAX_VEHICLES_PER_RIDE_ENTRY];
+    std::vector<std::array<CoordsXY, 3>> _peepLoadingWaypoints[MAX_VEHICLES_PER_RIDE_ENTRY];
 
 public:
     explicit RideObject(const rct_object_entry& entry)
@@ -33,8 +34,8 @@ public:
         return &_legacyType;
     }
 
-    void ReadJson(IReadObjectContext* context, const json_t* root) override;
-    void ReadLegacy(IReadObjectContext* context, IStream* stream) override;
+    void ReadJson(IReadObjectContext* context, json_t& root) override;
+    void ReadLegacy(IReadObjectContext* context, OpenRCT2::IStream* stream) override;
     void Load() override;
     void Unload() override;
 
@@ -45,21 +46,22 @@ public:
 
     void SetRepositoryItem(ObjectRepositoryItem* item) const override;
 
-private:
-    void ReadLegacyVehicle(IReadObjectContext* context, IStream* stream, rct_ride_entry_vehicle* vehicle);
+    static uint8_t ParseRideType(const std::string& s);
 
-    void ReadJsonVehicleInfo(IReadObjectContext* context, const json_t* properties);
-    std::vector<rct_ride_entry_vehicle> ReadJsonCars(const json_t* jCars);
-    rct_ride_entry_vehicle ReadJsonCar(const json_t* jCar);
-    vehicle_colour_preset_list ReadJsonCarColours(const json_t* jCarColours);
-    std::vector<vehicle_colour> ReadJsonColourConfiguration(const json_t* jColourConfig);
+private:
+    void ReadLegacyVehicle(IReadObjectContext* context, OpenRCT2::IStream* stream, rct_ride_entry_vehicle* vehicle);
+
+    void ReadJsonVehicleInfo(IReadObjectContext* context, json_t& properties);
+    std::vector<rct_ride_entry_vehicle> ReadJsonCars(json_t& jCars);
+    rct_ride_entry_vehicle ReadJsonCar(json_t& jCar);
+    vehicle_colour_preset_list ReadJsonCarColours(json_t& jCarColours);
+    std::vector<vehicle_colour> ReadJsonColourConfiguration(json_t& jColourConfig);
 
     static uint8_t CalculateNumVerticalFrames(const rct_ride_entry_vehicle* vehicleEntry);
     static uint8_t CalculateNumHorizontalFrames(const rct_ride_entry_vehicle* vehicleEntry);
 
     static bool IsRideTypeShopOrFacility(uint8_t rideType);
-    static uint8_t ParseRideType(const std::string& s);
     static uint8_t ParseRideCategory(const std::string& s);
-    static uint8_t ParseShopItem(const std::string& s);
+    static ShopItem ParseShopItem(const std::string& s);
     static colour_t ParseColour(const std::string& s);
 };

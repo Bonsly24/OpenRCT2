@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (c) 2014-2019 OpenRCT2 developers
+ * Copyright (c) 2014-2020 OpenRCT2 developers
  *
  * For a complete list of all authors, please refer to contributors.md
  * Interested in contributing? Visit https://github.com/OpenRCT2/OpenRCT2
@@ -21,38 +21,58 @@
 #include <memory>
 #include <utility>
 
-/**
- * Common error codes for game actions.
- */
-enum class GA_ERROR : uint16_t
+class StringVariant
 {
-    OK,
-    INVALID_PARAMETERS,
-    DISALLOWED,
-    GAME_PAUSED,
-    INSUFFICIENT_FUNDS,
-    NOT_IN_EDITOR_MODE,
+private:
+    rct_string_id StringId = STR_NONE;
+    std::string String;
 
-    NOT_OWNED,
-    TOO_LOW,
-    TOO_HIGH,
-    NO_CLEARANCE,
-    ITEM_ALREADY_PLACED,
+public:
+    StringVariant() = default;
 
-    NOT_CLOSED,
-    BROKEN,
+    StringVariant(rct_string_id stringId)
+        : StringId(stringId)
+    {
+    }
 
-    NO_FREE_ELEMENTS,
+    StringVariant(const std::string& s)
+        : String(s)
+    {
+    }
 
-    UNKNOWN = UINT16_MAX,
+    StringVariant(std::string&& s)
+        : String(std::move(s))
+    {
+    }
+
+    StringVariant(const char* s)
+        : String(s)
+    {
+    }
+
+    const std::string* AsString() const
+    {
+        if (!String.empty())
+        {
+            return &String;
+        }
+        return {};
+    }
+
+    const rct_string_id* AsStringId() const
+    {
+        if (String.empty())
+        {
+            return &StringId;
+        }
+        return {};
+    }
+
+    rct_string_id GetStringId() const
+    {
+        return String.empty() ? StringId : STR_NONE;
+    }
 };
-
-namespace GA_FLAGS
-{
-    constexpr uint16_t ALLOW_WHILE_PAUSED = 1 << 0;
-    constexpr uint16_t CLIENT_ONLY = 1 << 1;
-    constexpr uint16_t EDITOR_ONLY = 1 << 2;
-} // namespace GA_FLAGS
 
 #ifdef __WARN_SUGGEST_FINAL_METHODS__
 #    pragma GCC diagnostic push
@@ -60,38 +80,139 @@ namespace GA_FLAGS
 #    pragma GCC diagnostic ignored "-Wsuggest-final-types"
 #endif
 
+namespace GameActions
+{
+    /**
+     * Common error codes for game actions.
+     */
+    enum class Status : uint16_t
+    {
+        Ok,
+        InvalidParameters,
+        Disallowed,
+        GamePaused,
+        InsufficientFunds,
+        NotInEditorMode,
+
+        NotOwned,
+        TooLow,
+        TooHigh,
+        NoClearance,
+        ItemAlreadyPlaced,
+
+        NotClosed,
+        Broken,
+
+        NoFreeElements,
+
+        Unknown = UINT16_MAX,
+    };
+
+    namespace Flags
+    {
+        constexpr uint16_t AllowWhilePaused = 1 << 0;
+        constexpr uint16_t ClientOnly = 1 << 1;
+        constexpr uint16_t EditorOnly = 1 << 2;
+    } // namespace Flags
+
+    /**
+     * Represents the result of a game action query or execution.
+     */
+    class Result
+    {
+    public:
+        using Ptr = std::unique_ptr<GameActions::Result>;
+
+        GameActions::Status Error = GameActions::Status::Ok;
+        StringVariant ErrorTitle;
+        StringVariant ErrorMessage;
+        std::array<uint8_t, 32> ErrorMessageArgs;
+        CoordsXYZ Position = { LOCATION_NULL, LOCATION_NULL, LOCATION_NULL };
+        money32 Cost = 0;
+        ExpenditureType Expenditure = ExpenditureType::Count;
+
+        Result() = default;
+        Result(GameActions::Status error, rct_string_id message);
+        Result(GameActions::Status error, rct_string_id title, rct_string_id message);
+        Result(GameActions::Status error, rct_string_id title, rct_string_id message, uint8_t* args);
+        Result(const GameActions::Result&) = delete;
+        virtual ~Result(){};
+
+        std::string GetErrorTitle() const;
+        std::string GetErrorMessage() const;
+    };
+
+    class ConstructClearResult final : public Result
+    {
+    public:
+        uint8_t GroundFlags{ 0 };
+    };
+
+} // namespace GameActions
+
 /**
- * Represents the result of a game action query or execution.
+ *
  */
-class GameActionResult
+class GameActionParameterVisitor
 {
 public:
-    using Ptr = std::unique_ptr<GameActionResult>;
+    virtual ~GameActionParameterVisitor() = default;
 
-    GA_ERROR Error = GA_ERROR::OK;
-    rct_string_id ErrorTitle = STR_NONE;
-    rct_string_id ErrorMessage = STR_NONE;
-    std::array<uint8_t, 12> ErrorMessageArgs;
-    CoordsXYZ Position = { LOCATION_NULL, LOCATION_NULL, LOCATION_NULL };
-    money32 Cost = 0;
-    uint16_t ExpenditureType = 0;
+    virtual void Visit(std::string_view name, bool& param)
+    {
+    }
 
-    GameActionResult() = default;
-    GameActionResult(GA_ERROR error, rct_string_id message);
-    GameActionResult(GA_ERROR error, rct_string_id title, rct_string_id message);
-    GameActionResult(GA_ERROR error, rct_string_id title, rct_string_id message, uint8_t* args);
-    GameActionResult(const GameActionResult&) = delete;
-    virtual ~GameActionResult(){};
+    virtual void Visit(std::string_view name, int32_t& param)
+    {
+    }
+
+    virtual void Visit(std::string_view name, std::string& param)
+    {
+    }
+
+    void Visit(CoordsXY& param)
+    {
+        Visit("x", param.x);
+        Visit("y", param.y);
+    }
+
+    void Visit(CoordsXYZ& param)
+    {
+        Visit("x", param.x);
+        Visit("y", param.y);
+        Visit("z", param.z);
+    }
+
+    void Visit(CoordsXYZD& param)
+    {
+        Visit("x", param.x);
+        Visit("y", param.y);
+        Visit("z", param.z);
+        Visit("direction", param.direction);
+    }
+
+    template<typename T> void Visit(std::string_view name, T& param)
+    {
+        static_assert(std::is_arithmetic_v<T> || std::is_enum_v<T>, "Not an arithmetic type");
+        auto value = static_cast<int32_t>(param);
+        Visit(name, value);
+        param = static_cast<T>(value);
+    }
+
+    template<typename T, size_t _TypeID> void Visit(std::string_view name, NetworkObjectId_t<T, _TypeID>& param)
+    {
+        Visit(name, param.id);
+    }
 };
 
 struct GameAction
 {
 public:
     using Ptr = std::unique_ptr<GameAction>;
-    using Callback_t = std::function<void(const struct GameAction*, const GameActionResult*)>;
+    using Callback_t = std::function<void(const struct GameAction*, const GameActions::Result*)>;
 
 private:
-    uint32_t const _type;
+    GameCommand const _type;
 
     NetworkPlayerId_t _playerId = { -1 }; // Callee
     uint32_t _flags = 0;                  // GAME_COMMAND_FLAGS
@@ -99,7 +220,7 @@ private:
     Callback_t _callback;
 
 public:
-    GameAction(uint32_t type)
+    GameAction(GameCommand type)
         : _type(type)
     {
     }
@@ -107,6 +228,15 @@ public:
     virtual ~GameAction() = default;
 
     virtual const char* GetName() const = 0;
+
+    virtual void AcceptParameters(GameActionParameterVisitor&)
+    {
+    }
+
+    void AcceptFlags(GameActionParameterVisitor& visitor)
+    {
+        visitor.Visit("flags", _flags);
+    }
 
     NetworkPlayerId_t GetPlayer() const
     {
@@ -119,7 +249,7 @@ public:
     }
 
     /**
-     * Gets the GA_FLAGS flags that are enabled for this game action.
+     * Gets the GameActions::Flags flags that are enabled for this game action.
      */
     virtual uint16_t GetActionFlags() const
     {
@@ -128,12 +258,12 @@ public:
 
         if ((GetFlags() & GAME_COMMAND_FLAG_GHOST) != 0 || (GetFlags() & GAME_COMMAND_FLAG_NO_SPEND) != 0)
         {
-            flags |= GA_FLAGS::CLIENT_ONLY;
+            flags |= GameActions::Flags::ClientOnly;
         }
 
         if (GetFlags() & GAME_COMMAND_FLAG_ALLOW_DURING_PAUSED)
         {
-            flags |= GA_FLAGS::ALLOW_WHILE_PAUSED;
+            flags |= GameActions::Flags::AllowWhilePaused;
         }
 
         return flags;
@@ -152,7 +282,7 @@ public:
         return _flags = flags;
     }
 
-    uint32_t GetType() const
+    GameCommand GetType() const
     {
         return _type;
     }
@@ -200,28 +330,30 @@ public:
     /**
      * Query the result of the game action without changing the game state.
      */
-    virtual GameActionResult::Ptr Query() const abstract;
+    virtual GameActions::Result::Ptr Query() const abstract;
 
     /**
      * Apply the game action and change the game state.
      */
-    virtual GameActionResult::Ptr Execute() const abstract;
+    virtual GameActions::Result::Ptr Execute() const abstract;
+
+    bool LocationValid(const CoordsXY& coords) const;
 };
 
 #ifdef __WARN_SUGGEST_FINAL_METHODS__
 #    pragma GCC diagnostic pop
 #endif
 
-template<uint32_t TId> struct GameActionNameQuery
+template<GameCommand TId> struct GameActionNameQuery
 {
 };
 
-template<uint32_t TType, typename TResultType> struct GameActionBase : GameAction
+template<GameCommand TType, typename TResultType> struct GameActionBase : GameAction
 {
 public:
     using Result = TResultType;
 
-    static constexpr uint32_t TYPE = TType;
+    static constexpr GameCommand TYPE = TType;
 
     GameActionBase()
         : GameAction(TYPE)
@@ -235,7 +367,7 @@ public:
 
     void SetCallback(std::function<void(const struct GameAction*, const TResultType*)> typedCallback)
     {
-        GameAction::SetCallback([typedCallback](const GameAction* ga, const GameActionResult* result) {
+        GameAction::SetCallback([typedCallback](const GameAction* ga, const GameActions::Result* result) {
             typedCallback(ga, static_cast<const TResultType*>(result));
         });
     }
@@ -247,25 +379,39 @@ protected:
     }
 };
 
-using GameActionFactory = GameAction* (*)();
-
 namespace GameActions
 {
+    using GameActionFactory = GameAction* (*)();
+
     void Initialize();
     void Register();
     bool IsValidId(uint32_t id);
-    GameAction::Ptr Create(uint32_t id);
+
+    // Halts the queue processing until ResumeQueue is called, any calls to ProcessQueue
+    // will have no effect during suspension. It has no effect of actions that will not
+    // cross the network.
+    void SuspendQueue();
+
+    // Resumes queue processing.
+    void ResumeQueue();
+
+    void Enqueue(const GameAction* ga, uint32_t tick);
+    void Enqueue(GameAction::Ptr&& ga, uint32_t tick);
+    void ProcessQueue();
+    void ClearQueue();
+
+    GameAction::Ptr Create(GameCommand id);
     GameAction::Ptr Clone(const GameAction* action);
 
     // This should be used if a round trip is to be expected.
-    GameActionResult::Ptr Query(const GameAction* action);
-    GameActionResult::Ptr Execute(const GameAction* action);
+    GameActions::Result::Ptr Query(const GameAction* action);
+    GameActions::Result::Ptr Execute(const GameAction* action);
 
     // This should be used from within game actions.
-    GameActionResult::Ptr QueryNested(const GameAction* action);
-    GameActionResult::Ptr ExecuteNested(const GameAction* action);
+    GameActions::Result::Ptr QueryNested(const GameAction* action);
+    GameActions::Result::Ptr ExecuteNested(const GameAction* action);
 
-    GameActionFactory Register(uint32_t id, GameActionFactory action);
+    GameActionFactory Register(GameCommand id, GameActionFactory action);
 
     template<typename T> static GameActionFactory Register()
     {
@@ -283,7 +429,7 @@ namespace GameActions
             return #cls;                                                         \
         }                                                                        \
     };                                                                           \
-    struct cls : public GameActionBase<id, res>
+    struct cls final : public GameActionBase<id, res>
     // clang-format on
 
 } // namespace GameActions

@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (c) 2014-2019 OpenRCT2 developers
+ * Copyright (c) 2014-2020 OpenRCT2 developers
  *
  * For a complete list of all authors, please refer to contributors.md
  * Interested in contributing? Visit https://github.com/OpenRCT2/OpenRCT2
@@ -7,16 +7,17 @@
  * OpenRCT2 is licensed under the GNU General Public License version 3.
  *****************************************************************************/
 
-#ifndef _VIRTUAL_FLOOR_H
-#define _VIRTUAL_FLOOR_H
+#pragma once
 
 #include "../common.h"
 
-enum VirtualFloorStyles
+struct CoordsXY;
+
+enum class VirtualFloorStyles : int32_t
 {
-    VIRTUAL_FLOOR_STYLE_OFF,
-    VIRTUAL_FLOOR_STYLE_CLEAR,
-    VIRTUAL_FLOOR_STYLE_GLASSY
+    Off,
+    Clear,
+    Glassy
 };
 
 struct paint_session;
@@ -30,8 +31,6 @@ void virtual_floor_enable();
 void virtual_floor_disable();
 void virtual_floor_invalidate();
 
-bool virtual_floor_tile_is_floor(int16_t x, int16_t y);
+bool virtual_floor_tile_is_floor(const CoordsXY& loc);
 
 void virtual_floor_paint(paint_session* session);
-
-#endif

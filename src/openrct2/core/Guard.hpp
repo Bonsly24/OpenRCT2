@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (c) 2014-2019 OpenRCT2 developers
+ * Copyright (c) 2014-2020 OpenRCT2 developers
  *
  * For a complete list of all authors, please refer to contributors.md
  * Interested in contributing? Visit https://github.com/OpenRCT2/OpenRCT2
@@ -10,8 +10,10 @@
 #pragma once
 
 #include <memory>
+#include <optional>
 #include <stdarg.h>
 #include <stdbool.h>
+#include <string>
 
 void openrct2_assert_fwd(bool expression, const char* message, ...);
 
@@ -41,6 +43,8 @@ namespace Guard
     void Fail(const char* message = nullptr, ...);
     void Fail_VA(const char* message, va_list args);
 
+    std::optional<std::string> GetLastAssertMessage();
+
     template<typename T> static void ArgumentNotNull(T* argument, const char* message = nullptr, ...)
     {
         va_list args;
@@ -64,6 +68,12 @@ namespace Guard
         Assert(argument >= min && argument <= max, message, args);
         va_end(args);
     }
+
+    template<typename T> static void IndexInRange(size_t index, const T& container)
+    {
+        Guard::Assert(index < container.size(), "Index %zu out of bounds (%zu)", index, container.size());
+    }
+
 } // namespace Guard
 
 #define GUARD_LINE "Location: %s:%d", __func__, __LINE__

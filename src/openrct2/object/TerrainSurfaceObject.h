@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (c) 2014-2019 OpenRCT2 developers
+ * Copyright (c) 2014-2020 OpenRCT2 developers
  *
  * For a complete list of all authors, please refer to contributors.md
  * Interested in contributing? Visit https://github.com/OpenRCT2/OpenRCT2
@@ -9,8 +9,9 @@
 
 #pragma once
 
-#include "../world/Location.hpp"
 #include "Object.h"
+
+struct CoordsXY;
 
 enum TERRAIN_SURFACE_FLAGS
 {
@@ -53,12 +54,14 @@ public:
     money32 Price{};
     TERRAIN_SURFACE_FLAGS Flags{};
 
+    uint32_t NumImagesLoaded{};
+
     explicit TerrainSurfaceObject(const rct_object_entry& entry)
         : Object(entry)
     {
     }
 
-    void ReadJson(IReadObjectContext* context, const json_t* root) override;
+    void ReadJson(IReadObjectContext* context, json_t& root) override;
     void Load() override;
     void Unload() override;
 
@@ -66,4 +69,6 @@ public:
 
     uint32_t GetImageId(
         const CoordsXY& position, int32_t length, int32_t rotation, int32_t offset, bool grid, bool underground) const;
+
+    static TerrainSurfaceObject* GetById(ObjectEntryIndex entryIndex);
 };

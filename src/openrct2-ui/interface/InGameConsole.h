@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (c) 2014-2019 OpenRCT2 developers
+ * Copyright (c) 2014-2020 OpenRCT2 developers
  *
  * For a complete list of all authors, please refer to contributors.md
  * Interested in contributing? Visit https://github.com/OpenRCT2/OpenRCT2
@@ -10,6 +10,8 @@
 #pragma once
 
 #include <openrct2/interface/InteractiveConsole.h>
+#include <openrct2/localisation/FormatCodes.h>
+#include <openrct2/world/Location.hpp>
 
 namespace OpenRCT2::Ui
 {
@@ -24,8 +26,9 @@ namespace OpenRCT2::Ui
         static constexpr int32_t CONSOLE_CARET_WIDTH = 6;
 
         bool _isOpen = false;
-        int32_t _consoleLeft, _consoleTop, _consoleRight, _consoleBottom;
-        int32_t _lastMainViewportX, _lastMainViewportY;
+        ScreenCoordsXY _consoleTopLeft;
+        ScreenCoordsXY _consoleBottomRight;
+        ScreenCoordsXY _lastMainViewport;
         std::deque<std::string> _consoleLines;
         utf8 _consoleCurrentLine[CONSOLE_INPUT_SIZE] = {};
         int32_t _consoleCaretTicks;
@@ -34,6 +37,8 @@ namespace OpenRCT2::Ui
         utf8 _consoleHistory[CONSOLE_HISTORY_SIZE][CONSOLE_INPUT_SIZE];
         int32_t _consoleHistoryIndex = 0;
         int32_t _consoleHistoryCount = 0;
+        size_t _selectionStart = 0;
+        int32_t _caretScreenPosX = 0;
 
     public:
         InGameConsole();
@@ -49,10 +54,10 @@ namespace OpenRCT2::Ui
         void Close() override;
         void Hide() override;
         void Toggle();
-        void WriteLine(const std::string& s, uint32_t colourFormat) override;
+        void WriteLine(const std::string& s, FormatToken colourFormat) override;
 
-        void Input(CONSOLE_INPUT input);
-        void RefreshCaret();
+        void Input(ConsoleInput input);
+        void RefreshCaret(size_t position = 0);
         void Scroll(int32_t linesToScroll);
 
         void Update();

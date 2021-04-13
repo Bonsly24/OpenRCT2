@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (c) 2014-2019 OpenRCT2 developers
+ * Copyright (c) 2014-2020 OpenRCT2 developers
  *
  * For a complete list of all authors, please refer to contributors.md
  * Interested in contributing? Visit https://github.com/OpenRCT2/OpenRCT2
@@ -13,23 +13,26 @@
 #include "../EditorObjectSelectionSession.h"
 #include "../Game.h"
 #include "../OpenRCT2.h"
+#include "../PlatformEnvironment.h"
 #include "../ReplayManager.h"
 #include "../Version.h"
-#include "../actions/ClimateSetAction.hpp"
-#include "../actions/RideSetPriceAction.hpp"
-#include "../actions/RideSetSetting.hpp"
-#include "../actions/SetCheatAction.hpp"
-#include "../actions/StaffSetCostumeAction.hpp"
+#include "../actions/ClimateSetAction.h"
+#include "../actions/RideSetPriceAction.h"
+#include "../actions/RideSetSettingAction.h"
+#include "../actions/SetCheatAction.h"
+#include "../actions/StaffSetCostumeAction.h"
 #include "../config/Config.h"
 #include "../core/Guard.hpp"
+#include "../core/Path.hpp"
 #include "../core/String.hpp"
 #include "../drawing/Drawing.h"
 #include "../drawing/Font.h"
 #include "../interface/Chat.h"
 #include "../interface/Colour.h"
+#include "../interface/Window_internal.h"
 #include "../localisation/Localisation.h"
-#include "../localisation/User.h"
 #include "../management/Finance.h"
+#include "../management/NewsItem.h"
 #include "../management/Research.h"
 #include "../network/network.h"
 #include "../object/Object.h"
@@ -37,11 +40,13 @@
 #include "../object/ObjectManager.h"
 #include "../object/ObjectRepository.h"
 #include "../peep/Staff.h"
+#include "../platform/platform.h"
 #include "../ride/Ride.h"
 #include "../ride/RideData.h"
 #include "../util/Util.h"
 #include "../windows/Intent.h"
 #include "../world/Climate.h"
+#include "../world/EntityList.h"
 #include "../world/Park.h"
 #include "../world/Scenery.h"
 #include "../world/Sprite.h"
@@ -137,15 +142,12 @@ static int32_t cc_rides(InteractiveConsole& console, const arguments_t& argv)
     {
         if (argv[0] == "list")
         {
-            Ride* ride;
-            int32_t i;
-            FOR_ALL_RIDES (i, ride)
+            for (const auto& ride : GetRideManager())
             {
-                char name[128];
-                format_string(name, 128, ride->name, &ride->name_arguments);
+                auto name = ride.GetName();
                 console.WriteFormatLine(
-                    "ride: %03d type: %02u subtype %03u operating mode: %02u name: %s", i, ride->type, ride->subtype,
-                    ride->mode, name);
+                    "ride: %03d type: %02u subtype %03u operating mode: %02u name: %s", ride.id, ride.type, ride.subtype,
+                    ride.mode, name.c_str());
             }
         }
         else if (argv[0] == "set")
@@ -155,7 +157,7 @@ static int32_t cc_rides(InteractiveConsole& console, const arguments_t& argv)
                 if (argv.size() > 1 && argv[1] == "mode")
                 {
                     console.WriteFormatLine("Ride modes are specified using integer IDs as given below:");
-                    for (int32_t i = 0; i < RIDE_MODE_COUNT; i++)
+                    for (int32_t i = 0; i < static_cast<uint8_t>(RideMode::Count); i++)
                     {
                         char mode_name[128] = { 0 };
                         rct_string_id mode_string_id = RideModeNames[i];
@@ -212,18 +214,18 @@ static int32_t cc_rides(InteractiveConsole& console, const arguments_t& argv)
                 }
                 else
                 {
-                    Ride* ride = get_ride(ride_index);
-                    if (mode <= 0 || mode > (RIDE_MODE_COUNT - 1))
+                    auto ride = get_ride(ride_index);
+                    if (mode >= static_cast<uint8_t>(RideMode::Count))
                     {
                         console.WriteFormatLine("Invalid ride mode.");
                     }
-                    else if (ride == nullptr || ride->type == RIDE_TYPE_NULL)
+                    else if (ride == nullptr)
                     {
                         console.WriteFormatLine("No ride found with index %d", ride_index);
                     }
                     else
                     {
-                        ride->mode = (uint8_t)(mode & 0xFF);
+                        ride->mode = static_cast<RideMode>(mode & 0xFF);
                         invalidate_test_results(ride);
                     }
                 }
@@ -244,25 +246,23 @@ static int32_t cc_rides(InteractiveConsole& console, const arguments_t& argv)
                 }
                 else
                 {
-                    Ride* ride = get_ride(ride_index);
+                    auto ride = get_ride(ride_index);
                     if (mass <= 0)
                     {
                         console.WriteFormatLine("Friction value must be strictly positive");
                     }
-                    else if (ride->type == RIDE_TYPE_NULL)
+                    else if (ride == nullptr)
                     {
                         console.WriteFormatLine("No ride found with index %d", ride_index);
                     }
                     else
                     {
-                        for (int32_t i = 0; i < ride->num_vehicles; i++)
+                        for (int32_t i = 0; i < ride->num_vehicles; ++i)
                         {
-                            uint16_t vehicle_index = ride->vehicles[i];
-                            while (vehicle_index != SPRITE_INDEX_NULL)
+                            for (Vehicle* vehicle = GetEntity<Vehicle>(ride->vehicles[i]); vehicle != nullptr;
+                                 vehicle = GetEntity<Vehicle>(vehicle->next_vehicle_on_train))
                             {
-                                rct_vehicle* vehicle = GET_VEHICLE(vehicle_index);
                                 vehicle->mass = mass;
-                                vehicle_index = vehicle->next_vehicle_on_train;
                             }
                         }
                     }
@@ -284,12 +284,12 @@ static int32_t cc_rides(InteractiveConsole& console, const arguments_t& argv)
                 }
                 else
                 {
-                    Ride* ride = get_ride(ride_index);
+                    auto ride = get_ride(ride_index);
                     if (excitement <= 0)
                     {
                         console.WriteFormatLine("Excitement value must be strictly positive");
                     }
-                    else if (ride->type == RIDE_TYPE_NULL)
+                    else if (ride == nullptr)
                     {
                         console.WriteFormatLine("No ride found with index %d", ride_index);
                     }
@@ -315,12 +315,12 @@ static int32_t cc_rides(InteractiveConsole& console, const arguments_t& argv)
                 }
                 else
                 {
-                    Ride* ride = get_ride(ride_index);
+                    auto ride = get_ride(ride_index);
                     if (intensity <= 0)
                     {
                         console.WriteFormatLine("Intensity value must be strictly positive");
                     }
-                    else if (ride->type == RIDE_TYPE_NULL)
+                    else if (ride == nullptr)
                     {
                         console.WriteFormatLine("No ride found with index %d", ride_index);
                     }
@@ -346,12 +346,12 @@ static int32_t cc_rides(InteractiveConsole& console, const arguments_t& argv)
                 }
                 else
                 {
-                    Ride* ride = get_ride(ride_index);
+                    auto ride = get_ride(ride_index);
                     if (nausea <= 0)
                     {
                         console.WriteFormatLine("Nausea value must be strictly positive");
                     }
-                    else if (ride->type == RIDE_TYPE_NULL)
+                    else if (ride == nullptr)
                     {
                         console.WriteFormatLine("No ride found with index %d", ride_index);
                     }
@@ -372,11 +372,9 @@ static int32_t cc_rides(InteractiveConsole& console, const arguments_t& argv)
                         auto price = arg1;
                         if (int_valid[0])
                         {
-                            uint16_t rideId{};
-                            Ride* ride;
-                            FOR_ALL_RIDES (rideId, ride)
+                            for (const auto& ride : GetRideManager())
                             {
-                                auto rideSetPrice = RideSetPriceAction(rideId, price, true);
+                                auto rideSetPrice = RideSetPriceAction(ride.id, price, true);
                                 GameActions::Execute(&rideSetPrice);
                             }
                         }
@@ -392,13 +390,11 @@ static int32_t cc_rides(InteractiveConsole& console, const arguments_t& argv)
 
                         if (int_valid[0] && int_valid[1])
                         {
-                            uint16_t rideId{};
-                            Ride* ride;
-                            FOR_ALL_RIDES (rideId, ride)
+                            for (const auto& ride : GetRideManager())
                             {
-                                if (ride->type == rideType)
+                                if (ride.type == rideType)
                                 {
-                                    auto rideSetPrice = RideSetPriceAction(rideId, price, true);
+                                    auto rideSetPrice = RideSetPriceAction(ride.id, price, true);
                                     GameActions::Execute(&rideSetPrice);
                                 }
                             }
@@ -440,14 +436,12 @@ static int32_t cc_staff(InteractiveConsole& console, const arguments_t& argv)
     {
         if (argv[0] == "list")
         {
-            Peep* peep;
-            int32_t i;
-            FOR_ALL_STAFF (i, peep)
+            for (auto peep : EntityList<Staff>())
             {
-                char name[128];
-                format_string(name, 128, peep->name_string_idx, &peep->id);
+                auto name = peep->GetName();
                 console.WriteFormatLine(
-                    "staff id %03d type: %02u energy %03u name %s", i, peep->staff_type, peep->energy, name);
+                    "staff id %03d type: %02u energy %03u name %s", peep->sprite_index, peep->AssignedStaffType, peep->Energy,
+                    name.c_str());
             }
         }
         else if (argv[0] == "set")
@@ -456,7 +450,7 @@ static int32_t cc_staff(InteractiveConsole& console, const arguments_t& argv)
             {
                 console.WriteFormatLine("staff set energy <staff id> <value 0-255>");
                 console.WriteFormatLine("staff set costume <staff id> <costume id>");
-                for (int32_t i = 0; i < ENTERTAINER_COSTUME_COUNT; i++)
+                for (int32_t i = 0; i < static_cast<uint8_t>(EntertainerCostume::Count); i++)
                 {
                     char costume_name[128] = { 0 };
                     rct_string_id costume = StaffCostumeNames[i];
@@ -474,12 +468,14 @@ static int32_t cc_staff(InteractiveConsole& console, const arguments_t& argv)
                 int_val[0] = console_parse_int(argv[2], &int_valid[0]);
                 int_val[1] = console_parse_int(argv[3], &int_valid[1]);
 
-                if (int_valid[0] && int_valid[1] && ((GET_PEEP(int_val[0])) != nullptr))
+                if (int_valid[0] && int_valid[1])
                 {
-                    Peep* peep = GET_PEEP(int_val[0]);
-
-                    peep->energy = int_val[1];
-                    peep->energy_target = int_val[1];
+                    Peep* peep = GetEntity<Peep>(int_val[0]);
+                    if (peep != nullptr)
+                    {
+                        peep->Energy = int_val[1];
+                        peep->EnergyTarget = int_val[1];
+                    }
                 }
             }
             else if (argv[1] == "costume")
@@ -488,27 +484,29 @@ static int32_t cc_staff(InteractiveConsole& console, const arguments_t& argv)
                 bool int_valid[2] = { false };
                 int_val[0] = console_parse_int(argv[2], &int_valid[0]);
                 int_val[1] = console_parse_int(argv[3], &int_valid[1]);
-                Peep* peep = nullptr;
                 if (!int_valid[0])
                 {
                     console.WriteLineError("Invalid staff ID");
                     return 1;
                 }
-                peep = GET_PEEP(int_val[0]);
-                bool is_entertainer = peep != nullptr && peep->type == PEEP_TYPE_STAFF
-                    && peep->staff_type == STAFF_TYPE_ENTERTAINER;
-                if (!is_entertainer)
+                auto staff = GetEntity<Staff>(int_val[0]);
+                if (staff == nullptr)
+                {
+                    console.WriteLineError("Invalid staff ID");
+                    return 1;
+                }
+                if (staff->AssignedStaffType != StaffType::Entertainer)
                 {
                     console.WriteLineError("Specified staff is not entertainer");
                     return 1;
                 }
-                if (!int_valid[1] || int_val[1] < 0 || int_val[1] >= ENTERTAINER_COSTUME_COUNT)
+                if (!int_valid[1] || int_val[1] < 0 || int_val[1] >= static_cast<uint8_t>(EntertainerCostume::Count))
                 {
                     console.WriteLineError("Invalid costume ID");
                     return 1;
                 }
 
-                uint8_t costume = int_val[1];
+                EntertainerCostume costume = static_cast<EntertainerCostume>(int_val[1]);
                 auto staffSetCostumeAction = StaffSetCostumeAction(int_val[0], costume);
                 GameActions::Execute(&staffSetCostumeAction);
             }
@@ -640,7 +638,8 @@ static int32_t cc_get(InteractiveConsole& console, const arguments_t& argv)
         }
         else if (argv[0] == "climate")
         {
-            console.WriteFormatLine("climate %s  (%d)", ClimateNames[gClimate], gClimate);
+            console.WriteFormatLine(
+                "climate %s  (%d)", ClimateNames[static_cast<uint8_t>(gClimate)], static_cast<uint8_t>(gClimate));
         }
         else if (argv[0] == "game_speed")
         {
@@ -650,33 +649,17 @@ static int32_t cc_get(InteractiveConsole& console, const arguments_t& argv)
         {
             console.WriteFormatLine("console_small_font %d", gConfigInterface.console_small_font);
         }
-        else if (argv[0] == "test_unfinished_tracks")
-        {
-            console.WriteFormatLine("test_unfinished_tracks %d", gConfigGeneral.test_unfinished_tracks);
-        }
-        else if (argv[0] == "no_test_crashes")
-        {
-            console.WriteFormatLine("no_test_crashes %d", gConfigGeneral.no_test_crashes);
-        }
         else if (argv[0] == "location")
         {
             rct_window* w = window_get_main();
             if (w != nullptr)
             {
-                int32_t interactionType;
-                TileElement* tileElement;
-                LocationXY16 mapCoord = {};
                 rct_viewport* viewport = window_get_viewport(w);
-                get_map_coordinates_from_pos(
-                    viewport->view_width / 2, viewport->view_height / 2, VIEWPORT_INTERACTION_MASK_TERRAIN, &mapCoord.x,
-                    &mapCoord.y, &interactionType, &tileElement, nullptr);
-                mapCoord.x -= 16;
-                mapCoord.x /= 32;
-                mapCoord.y -= 16;
-                mapCoord.y /= 32;
-                mapCoord.x++;
-                mapCoord.y++;
-                console.WriteFormatLine("location %d %d", mapCoord.x, mapCoord.y);
+                auto info = get_map_coordinates_from_pos(
+                    { viewport->view_width / 2, viewport->view_height / 2 }, EnumsToFlags(ViewportInteractionItem::Terrain));
+
+                auto tileMapCoord = TileCoordsXY(info.Loc);
+                console.WriteFormatLine("location %d %d", tileMapCoord.x, tileMapCoord.y);
             }
         }
         else if (argv[0] == "window_scale")
@@ -710,6 +693,10 @@ static int32_t cc_get(InteractiveConsole& console, const arguments_t& argv)
         else if (argv[0] == "current_rotation")
         {
             console.WriteFormatLine("current_rotation %d", get_current_rotation());
+        }
+        else if (argv[0] == "host_timescale")
+        {
+            console.WriteFormatLine("host_timescale %.02f", OpenRCT2::GetContext()->GetTimeScale());
         }
 #ifndef NO_TTF
         else if (argv[0] == "enable_hinting")
@@ -753,12 +740,12 @@ static int32_t cc_set(InteractiveConsole& console, const arguments_t& argv)
 
         if (argv[0] == "money" && invalidArguments(&invalidArgs, double_valid[0]))
         {
-            money32 money = MONEY((int32_t)double_val[0], ((int32_t)(double_val[0] * 100)) % 100);
+            money32 money = MONEY(static_cast<int32_t>(double_val[0]), (static_cast<int32_t>(double_val[0] * 100)) % 100);
             if (gCash != money)
             {
                 auto setCheatAction = SetCheatAction(CheatType::SetMoney, money);
-                setCheatAction.SetCallback([&console](const GameAction*, const GameActionResult* res) {
-                    if (res->Error != GA_ERROR::OK)
+                setCheatAction.SetCallback([&console](const GameAction*, const GameActions::Result* res) {
+                    if (res->Error != GameActions::Status::Ok)
                         console.WriteLineError("Network error: Permission denied!");
                     else
                         console.Execute("get money");
@@ -788,12 +775,13 @@ static int32_t cc_set(InteractiveConsole& console, const arguments_t& argv)
         else if (argv[0] == "guest_initial_cash" && invalidArguments(&invalidArgs, double_valid[0]))
         {
             gGuestInitialCash = std::clamp(
-                MONEY((int32_t)double_val[0], ((int32_t)(double_val[0] * 100)) % 100), MONEY(0, 0), MONEY(1000, 0));
+                MONEY(static_cast<int32_t>(double_val[0]), (static_cast<int32_t>(double_val[0] * 100)) % 100), MONEY(0, 0),
+                MONEY(1000, 0));
             console.Execute("get guest_initial_cash");
         }
         else if (argv[0] == "guest_initial_happiness" && invalidArguments(&invalidArgs, int_valid[0]))
         {
-            gGuestInitialHappiness = calculate_guest_initial_happiness((uint8_t)int_val[0]);
+            gGuestInitialHappiness = calculate_guest_initial_happiness(static_cast<uint8_t>(int_val[0]));
             console.Execute("get guest_initial_happiness");
         }
         else if (argv[0] == "guest_initial_hunger" && invalidArguments(&invalidArgs, int_valid[0]))
@@ -864,46 +852,50 @@ static int32_t cc_set(InteractiveConsole& console, const arguments_t& argv)
         else if (argv[0] == "land_rights_cost" && invalidArguments(&invalidArgs, double_valid[0]))
         {
             gLandPrice = std::clamp(
-                MONEY((int32_t)double_val[0], ((int32_t)(double_val[0] * 100)) % 100), MONEY(0, 0), MONEY(200, 0));
+                MONEY(static_cast<int32_t>(double_val[0]), (static_cast<int32_t>(double_val[0] * 100)) % 100), MONEY(0, 0),
+                MONEY(200, 0));
             console.Execute("get land_rights_cost");
         }
         else if (argv[0] == "construction_rights_cost" && invalidArguments(&invalidArgs, double_valid[0]))
         {
             gConstructionRightsPrice = std::clamp(
-                MONEY((int32_t)double_val[0], ((int32_t)(double_val[0] * 100)) % 100), MONEY(0, 0), MONEY(200, 0));
+                MONEY(static_cast<int32_t>(double_val[0]), (static_cast<int32_t>(double_val[0] * 100)) % 100), MONEY(0, 0),
+                MONEY(200, 0));
             console.Execute("get construction_rights_cost");
         }
         else if (argv[0] == "climate")
         {
+            uint8_t newClimate = static_cast<uint8_t>(ClimateType::Count);
+            invalidArgs = true;
+
             if (int_valid[0])
             {
-                const auto newClimate = int_val[0];
-                if (newClimate < 0 || newClimate >= CLIMATE_COUNT)
-                {
-                    console.WriteLine(language_get_string(STR_INVALID_CLIMATE_ID));
-                }
-                else
-                {
-                    auto gameAction = ClimateSetAction(newClimate);
-                    GameActions::Execute(&gameAction);
-                }
+                newClimate = static_cast<uint8_t>(int_val[0]);
+                invalidArgs = false;
             }
             else
             {
-                for (i = 0; i < CLIMATE_COUNT; i++)
+                for (newClimate = 0; newClimate < static_cast<uint8_t>(ClimateType::Count); newClimate++)
                 {
-                    if (argv[1] == ClimateNames[i])
+                    if (argv[1] == ClimateNames[newClimate])
                     {
-                        gClimate = i;
+                        invalidArgs = false;
                         break;
                     }
                 }
             }
 
-            if (i == CLIMATE_COUNT)
-                invalidArgs = true;
+            if (invalidArgs)
+            {
+                console.WriteLine(language_get_string(STR_INVALID_CLIMATE_ID));
+            }
             else
+            {
+                auto gameAction = ClimateSetAction(ClimateType{ newClimate });
+                GameActions::Execute(&gameAction);
+
                 console.Execute("get climate");
+            }
         }
         else if (argv[0] == "game_speed" && invalidArguments(&invalidArgs, int_valid[0]))
         {
@@ -916,34 +908,21 @@ static int32_t cc_set(InteractiveConsole& console, const arguments_t& argv)
             config_save_default();
             console.Execute("get console_small_font");
         }
-        else if (argv[0] == "test_unfinished_tracks" && invalidArguments(&invalidArgs, int_valid[0]))
-        {
-            gConfigGeneral.test_unfinished_tracks = (int_val[0] != 0);
-            config_save_default();
-            console.Execute("get test_unfinished_tracks");
-        }
-        else if (argv[0] == "no_test_crashes" && invalidArguments(&invalidArgs, int_valid[0]))
-        {
-            gConfigGeneral.no_test_crashes = (int_val[0] != 0);
-            config_save_default();
-            console.Execute("get no_test_crashes");
-        }
         else if (argv[0] == "location" && invalidArguments(&invalidArgs, int_valid[0] && int_valid[1]))
         {
             rct_window* w = window_get_main();
             if (w != nullptr)
             {
-                int32_t x = (int16_t)(int_val[0] * 32 + 16);
-                int32_t y = (int16_t)(int_val[1] * 32 + 16);
-                int32_t z = tile_element_height(x, y);
-                window_set_location(w, x, y, z);
+                auto location = TileCoordsXYZ(int_val[0], int_val[1], 0).ToCoordsXYZ().ToTileCentre();
+                location.z = tile_element_height(location);
+                w->SetLocation(location);
                 viewport_update_position(w);
                 console.Execute("get location");
             }
         }
         else if (argv[0] == "window_scale" && invalidArguments(&invalidArgs, double_valid[0]))
         {
-            float newScale = (float)(0.001 * std::trunc(1000 * double_val[0]));
+            float newScale = static_cast<float>(0.001 * std::trunc(1000 * double_val[0]));
             gConfigGeneral.window_scale = std::clamp(newScale, 0.5f, 5.0f);
             config_save_default();
             gfx_invalidate_screen();
@@ -973,8 +952,8 @@ static int32_t cc_set(InteractiveConsole& console, const arguments_t& argv)
             if (gCheatsSandboxMode != (int_val[0] != 0))
             {
                 auto setCheatAction = SetCheatAction(CheatType::SandboxMode, int_val[0] != 0);
-                setCheatAction.SetCallback([&console](const GameAction*, const GameActionResult* res) {
-                    if (res->Error != GA_ERROR::OK)
+                setCheatAction.SetCallback([&console](const GameAction*, const GameActions::Result* res) {
+                    if (res->Error != GameActions::Status::Ok)
                         console.WriteLineError("Network error: Permission denied!");
                     else
                         console.Execute("get cheat_sandbox_mode");
@@ -991,8 +970,8 @@ static int32_t cc_set(InteractiveConsole& console, const arguments_t& argv)
             if (gCheatsDisableClearanceChecks != (int_val[0] != 0))
             {
                 auto setCheatAction = SetCheatAction(CheatType::DisableClearanceChecks, int_val[0] != 0);
-                setCheatAction.SetCallback([&console](const GameAction*, const GameActionResult* res) {
-                    if (res->Error != GA_ERROR::OK)
+                setCheatAction.SetCallback([&console](const GameAction*, const GameActions::Result* res) {
+                    if (res->Error != GameActions::Status::Ok)
                         console.WriteLineError("Network error: Permission denied!");
                     else
                         console.Execute("get cheat_disable_clearance_checks");
@@ -1009,8 +988,8 @@ static int32_t cc_set(InteractiveConsole& console, const arguments_t& argv)
             if (gCheatsDisableSupportLimits != (int_val[0] != 0))
             {
                 auto setCheatAction = SetCheatAction(CheatType::DisableSupportLimits, int_val[0] != 0);
-                setCheatAction.SetCallback([&console](const GameAction*, const GameActionResult* res) {
-                    if (res->Error != GA_ERROR::OK)
+                setCheatAction.SetCallback([&console](const GameAction*, const GameActions::Result* res) {
+                    if (res->Error != GameActions::Status::Ok)
                         console.WriteLineError("Network error: Permission denied!");
                     else
                         console.Execute("get cheat_disable_support_limits");
@@ -1036,6 +1015,14 @@ static int32_t cc_set(InteractiveConsole& console, const arguments_t& argv)
                 window_rotate_camera(mainWindow, newRotation - currentRotation);
             }
             console.Execute("get current_rotation");
+        }
+        else if (argv[0] == "host_timescale" && invalidArguments(&invalidArgs, double_valid[0]))
+        {
+            float newScale = static_cast<float>(double_val[0]);
+
+            OpenRCT2::GetContext()->SetTimeScale(newScale);
+
+            console.Execute("get host_timescale");
         }
 #ifndef NO_TTF
         else if (argv[0] == "enable_hinting" && invalidArguments(&invalidArgs, int_valid[0]))
@@ -1064,18 +1051,6 @@ static int32_t cc_set(InteractiveConsole& console, const arguments_t& argv)
     return 0;
 }
 
-static int32_t cc_twitch([[maybe_unused]] InteractiveConsole& console, [[maybe_unused]] const arguments_t& argv)
-{
-#ifdef DISABLE_TWITCH
-    console.WriteLineError("OpenRCT2 build not compiled with Twitch integration.");
-#else
-    // TODO: Add some twitch commands
-    // Display a message to the player for now
-    console.WriteLine("To be implemented");
-#endif
-    return 0;
-}
-
 static int32_t cc_load_object(InteractiveConsole& console, const arguments_t& argv)
 {
     if (!argv.empty())
@@ -1096,7 +1071,7 @@ static int32_t cc_load_object(InteractiveConsole& console, const arguments_t& ar
         }
 
         const rct_object_entry* entry = &ori->ObjectEntry;
-        void* loadedObject = object_manager_get_loaded_object(entry);
+        const auto* loadedObject = object_manager_get_loaded_object(ObjectEntryDescriptor(*ori));
         if (loadedObject != nullptr)
         {
             console.WriteLineError("Object is already in scenario.");
@@ -1109,10 +1084,10 @@ static int32_t cc_load_object(InteractiveConsole& console, const arguments_t& ar
             console.WriteLineError("Unable to load object.");
             return 1;
         }
-        int32_t groupIndex = object_manager_get_loaded_object_entry_index(loadedObject);
+        auto groupIndex = object_manager_get_loaded_object_entry_index(loadedObject);
 
-        uint8_t objectType = object_entry_get_type(entry);
-        if (objectType == OBJECT_TYPE_RIDE)
+        ObjectType objectType = entry->GetType();
+        if (objectType == ObjectType::Ride)
         {
             // Automatically research the ride so it's supported by the game.
             rct_ride_entry* rideEntry;
@@ -1124,16 +1099,19 @@ static int32_t cc_load_object(InteractiveConsole& console, const arguments_t& ar
             {
                 rideType = rideEntry->ride_type[j];
                 if (rideType != RIDE_TYPE_NULL)
-                    research_insert(true, RESEARCH_ENTRY_RIDE_MASK | (rideType << 8) | groupIndex, rideEntry->category[0]);
+                {
+                    ResearchCategory category = GetRideTypeDescriptor(rideType).GetResearchCategory();
+                    research_insert_ride_entry(rideType, groupIndex, category, true);
+                }
             }
 
             gSilentResearch = true;
             research_reset_current_item();
             gSilentResearch = false;
         }
-        else if (objectType == OBJECT_TYPE_SCENERY_GROUP)
+        else if (objectType == ObjectType::SceneryGroup)
         {
-            research_insert(true, groupIndex, RESEARCH_CATEGORY_SCENERY_GROUP);
+            research_insert_scenery_group_entry(groupIndex, true);
 
             gSilentResearch = true;
             research_reset_current_item();
@@ -1159,25 +1137,20 @@ static int32_t cc_object_count(InteractiveConsole& console, [[maybe_unused]] con
         "Paths", "Path Additions", "Scenery groups", "Park entrances", "Water",
     };
 
-    for (int32_t i = 0; i < 10; i++)
+    for (ObjectType i = ObjectType::Ride; i < ObjectType::ScenarioText; i++)
     {
         int32_t entryGroupIndex = 0;
-        for (; entryGroupIndex < object_entry_group_counts[i]; entryGroupIndex++)
+        for (; entryGroupIndex < object_entry_group_counts[EnumValue(i)]; entryGroupIndex++)
         {
             if (object_entry_get_chunk(i, entryGroupIndex) == nullptr)
             {
                 break;
             }
         }
-        console.WriteFormatLine("%s: %d/%d", object_type_names[i], entryGroupIndex, object_entry_group_counts[i]);
+        console.WriteFormatLine(
+            "%s: %d/%d", object_type_names[EnumValue(i)], entryGroupIndex, object_entry_group_counts[EnumValue(i)]);
     }
 
-    return 0;
-}
-
-static int32_t cc_reset_user_strings([[maybe_unused]] InteractiveConsole& console, [[maybe_unused]] const arguments_t& argv)
-{
-    reset_user_strings();
     return 0;
 }
 
@@ -1200,6 +1173,10 @@ static int32_t cc_open(InteractiveConsole& console, const arguments_t& argv)
         else if (argv[0] == "scenario_options" && invalidArguments(&invalidTitle, !title))
         {
             context_open_window(WC_EDITOR_SCENARIO_OPTIONS);
+        }
+        else if (argv[0] == "objective_options" && invalidArguments(&invalidTitle, !title))
+        {
+            context_open_window(WC_EDITOR_OBJECTIVE_OPTIONS);
         }
         else if (argv[0] == "options")
         {
@@ -1232,6 +1209,13 @@ static int32_t cc_remove_unused_objects(InteractiveConsole& console, [[maybe_unu
     return 0;
 }
 
+static int32_t cc_remove_floating_objects(InteractiveConsole& console, const arguments_t& argv)
+{
+    uint16_t result = remove_floating_sprites();
+    console.WriteFormatLine("Removed %d flying objects", result);
+    return 0;
+}
+
 static int32_t cc_remove_park_fences(InteractiveConsole& console, [[maybe_unused]] const arguments_t& argv)
 {
     tile_element_iterator it;
@@ -1245,6 +1229,8 @@ static int32_t cc_remove_park_fences(InteractiveConsole& console, [[maybe_unused
         }
     } while (tile_element_iterator_next(&it));
 
+    gfx_invalidate_screen();
+
     console.WriteFormatLine("Park fences have been removed.");
     return 0;
 }
@@ -1254,45 +1240,31 @@ static int32_t cc_show_limits(InteractiveConsole& console, [[maybe_unused]] cons
     map_reorganise_elements();
     int32_t tileElementCount = gNextFreeTileElement - gTileElements - 1;
 
-    int32_t rideCount = 0;
-    for (int32_t i = 0; i < MAX_RIDES; ++i)
-    {
-        Ride* ride = get_ride(i);
-        if (ride->type != RIDE_TYPE_NULL)
-        {
-            rideCount++;
-        }
-    }
-
+    int32_t rideCount = ride_get_count();
     int32_t spriteCount = 0;
-    for (int32_t i = 1; i < NUM_SPRITE_LISTS; ++i)
+    for (int32_t i = 0; i < static_cast<uint8_t>(EntityType::Count); ++i)
     {
-        spriteCount += gSpriteListCount[i];
+        spriteCount += GetEntityListCount(EntityType(i));
     }
 
-    int32_t staffCount = 0;
-    for (int32_t i = 0; i < STAFF_MAX_COUNT; ++i)
-    {
-        if (gStaffModes[i] & 1)
-        {
-            staffCount++;
-        }
-    }
+    int32_t staffCount = GetEntityListCount(EntityType::Staff);
 
     int32_t bannerCount = 0;
     for (BannerIndex i = 0; i < MAX_BANNERS; ++i)
     {
-        if (gBanners[i].type != BANNER_NULL)
+        auto banner = GetBanner(i);
+        if (!banner->IsNull())
         {
             bannerCount++;
         }
     }
 
-    console.WriteFormatLine("Sprites: %d/%d", spriteCount, MAX_SPRITES);
+    console.WriteFormatLine("Sprites: %d/%d", spriteCount, MAX_ENTITIES);
     console.WriteFormatLine("Map Elements: %d/%d", tileElementCount, MAX_TILE_ELEMENTS);
     console.WriteFormatLine("Banners: %d/%zu", bannerCount, MAX_BANNERS);
     console.WriteFormatLine("Rides: %d/%d", rideCount, MAX_RIDES);
     console.WriteFormatLine("Staff: %d/%d", staffCount, STAFF_MAX_COUNT);
+    console.WriteFormatLine("Images: %zu/%zu", ImageListGetUsedCount(), ImageListGetMaximum());
     return 0;
 }
 
@@ -1308,7 +1280,7 @@ static int32_t cc_for_date([[maybe_unused]] InteractiveConsole& console, [[maybe
 
     // All cases involve providing a year, so grab that first
     year = atoi(argv[0].c_str());
-    if (year < 1 || year > 8192)
+    if (year < 1 || year > MAX_YEAR)
     {
         return -1;
     }
@@ -1333,7 +1305,8 @@ static int32_t cc_for_date([[maybe_unused]] InteractiveConsole& console, [[maybe
     // YYYY OR YYYY MM (no day provided, preserve existing day)
     if (argv.size() <= 2)
     {
-        day = std::clamp(gDateMonthTicks / (0x10000 / days_in_month[month - 1]) + 1, 1, (int)days_in_month[month - 1]);
+        day = std::clamp(
+            gDateMonthTicks / (TICKS_PER_MONTH / days_in_month[month - 1]) + 1, 1, static_cast<int>(days_in_month[month - 1]));
     }
 
     // YYYY MM DD (year, month, and day provided)
@@ -1349,6 +1322,40 @@ static int32_t cc_for_date([[maybe_unused]] InteractiveConsole& console, [[maybe
     date_set(year, month, day);
     window_invalidate_by_class(WC_BOTTOM_TOOLBAR);
 
+    return 1;
+}
+
+static int32_t cc_load_park([[maybe_unused]] InteractiveConsole& console, [[maybe_unused]] const arguments_t& argv)
+{
+    if (argv.size() < 1)
+    {
+        console.WriteLine("Parameters required <filename>");
+        return 0;
+    }
+
+    char savePath[MAX_PATH];
+    if (String::IndexOf(argv[0].c_str(), '/') == SIZE_MAX && String::IndexOf(argv[0].c_str(), '\\') == SIZE_MAX)
+    {
+        // no / or \ was included. File should be in save dir.
+        platform_get_user_directory(savePath, "save", sizeof(savePath));
+        safe_strcat_path(savePath, argv[0].c_str(), sizeof(savePath));
+    }
+    else
+    {
+        safe_strcpy(savePath, argv[0].c_str(), sizeof(savePath));
+    }
+    if (!String::EndsWith(savePath, ".sv6", true) && !String::EndsWith(savePath, ".sc6", true))
+    {
+        path_append_extension(savePath, ".sv6", sizeof(savePath));
+    }
+    if (context_load_park_from_file(savePath))
+    {
+        console.WriteFormatLine("Park %s was loaded successfully", savePath);
+    }
+    else
+    {
+        console.WriteFormatLine("Loading Park %s failed", savePath);
+    }
     return 1;
 }
 
@@ -1368,7 +1375,7 @@ static int32_t cc_save_park([[maybe_unused]] InteractiveConsole& console, [[mayb
 static int32_t cc_say(InteractiveConsole& console, const arguments_t& argv)
 {
     if (network_get_mode() == NETWORK_MODE_NONE || network_get_status() != NETWORK_STATUS_CONNECTED
-        || network_get_authstatus() != NETWORK_AUTH_OK)
+        || network_get_authstatus() != NetworkAuth::Ok)
     {
         console.WriteFormatLine("This command only works in multiplayer mode.");
         return 0;
@@ -1404,6 +1411,14 @@ static int32_t cc_replay_startrecord(InteractiveConsole& console, const argument
 
     std::string name = argv[0];
 
+    if (!String::EndsWith(name, ".sv6r", true))
+    {
+        name += ".sv6r";
+    }
+    std::string outPath = OpenRCT2::GetContext()->GetPlatformEnvironment()->GetDirectoryPath(
+        OpenRCT2::DIRBASE::USER, OpenRCT2::DIRID::REPLAY);
+    name = Path::Combine(outPath, name);
+
     // If ticks are specified by user use that otherwise maximum ticks specified by const.
     uint32_t maxTicks = OpenRCT2::k_MaxReplayTicks;
     if (argv.size() >= 2)
@@ -1436,7 +1451,7 @@ static int32_t cc_replay_stoprecord(InteractiveConsole& console, const arguments
     }
 
     auto* replayManager = OpenRCT2::GetContext()->GetReplayManager();
-    if (replayManager->IsRecording() == false && replayManager->IsNormalising() == false)
+    if (!replayManager->IsRecording() && !replayManager->IsNormalising())
     {
         console.WriteFormatLine("Replay currently not recording");
         return 0;
@@ -1539,6 +1554,14 @@ static int32_t cc_replay_normalise(InteractiveConsole& console, const arguments_
     std::string inputFile = argv[0];
     std::string outputFile = argv[1];
 
+    if (!String::EndsWith(outputFile, ".sv6r", true))
+    {
+        outputFile += ".sv6r";
+    }
+    std::string outPath = OpenRCT2::GetContext()->GetPlatformEnvironment()->GetDirectoryPath(
+        OpenRCT2::DIRBASE::USER, OpenRCT2::DIRID::REPLAY);
+    outputFile = Path::Combine(outPath, outputFile);
+
     auto* replayManager = OpenRCT2::GetContext()->GetReplayManager();
     if (replayManager->NormaliseReplay(inputFile, outputFile))
     {
@@ -1546,6 +1569,58 @@ static int32_t cc_replay_normalise(InteractiveConsole& console, const arguments_
         return 1;
     }
 
+    return 0;
+}
+
+static int32_t cc_mp_desync(InteractiveConsole& console, const arguments_t& argv)
+{
+    int32_t desyncType = 0;
+    if (argv.size() >= 1)
+    {
+        desyncType = atoi(argv[0].c_str());
+    }
+
+    std::vector<Guest*> guests;
+
+    for (auto* guest : EntityList<Guest>())
+    {
+        guests.push_back(guest);
+    }
+
+    switch (desyncType)
+    {
+        case 0: // Guest t-shirts.
+        {
+            if (guests.empty())
+            {
+                console.WriteFormatLine("No guests");
+            }
+            else
+            {
+                auto* guest = guests[0];
+                if (guests.size() > 1)
+                    guest = guests[util_rand() % guests.size() - 1];
+                guest->TshirtColour = util_rand() & 0xFF;
+                guest->Invalidate();
+            }
+            break;
+        }
+        case 1: // Remove random guest.
+        {
+            if (guests.empty())
+            {
+                console.WriteFormatLine("No guest removed");
+            }
+            else
+            {
+                auto* guest = guests[0];
+                if (guests.size() > 1)
+                    guest = guests[util_rand() % guests.size() - 1];
+                guest->Remove();
+            }
+            break;
+        }
+    }
     return 0;
 }
 
@@ -1574,6 +1649,64 @@ static int32_t cc_terminate([[maybe_unused]] InteractiveConsole& console, [[mayb
     return 0;
 }
 #pragma warning(pop)
+
+static int32_t cc_assert([[maybe_unused]] InteractiveConsole& console, [[maybe_unused]] const arguments_t& argv)
+{
+    if (!argv.empty())
+        Guard::Assert(false, "%s", argv[0].c_str());
+    else
+        Guard::Assert(false);
+    return 0;
+}
+
+static int32_t cc_add_news_item([[maybe_unused]] InteractiveConsole& console, [[maybe_unused]] const arguments_t& argv)
+{
+    printf("argv.size() = %zu\n", argv.size());
+    if (argv.size() < 2)
+    {
+        console.WriteLineWarning("Too few arguments");
+        static_assert(News::ItemTypeCount == 10, "News::ItemType::Count changed, update console command!");
+        console.WriteLine("add_news_item <type> <message> [assoc]");
+        console.WriteLine("type is one of:");
+        console.WriteLine("    0 (News::ItemType::Null)");
+        console.WriteLine("    1 (News::ItemType::Ride)");
+        console.WriteLine("    2 (News::ItemType::PeepOnRide)");
+        console.WriteLine("    3 (News::ItemType::Peep)");
+        console.WriteLine("    4 (News::ItemType::Money)");
+        console.WriteLine("    5 (News::ItemType::Blank)");
+        console.WriteLine("    6 (News::ItemType::Research)");
+        console.WriteLine("    7 (News::ItemType::Peeps)");
+        console.WriteLine("    8 (News::ItemType::Award)");
+        console.WriteLine("    9 (News::ItemType::Graph)");
+        console.WriteLine("message is the message to display, wrapped in quotes for multiple words");
+        console.WriteLine("assoc is the associated id of ride/peep/tile/etc. If the selected ItemType doesn't need an assoc "
+                          "(Null, Money, Award, Graph), you can leave this field blank");
+        return 1;
+    }
+
+    auto type = atoi(argv[0].c_str());
+    auto msg = argv[1].c_str();
+    auto assoc = 0;
+
+    News::ItemType itemType = static_cast<News::ItemType>(type);
+
+    if (argv.size() == 3) // 3 arguments passed, set assoc
+    {
+        assoc = atoi(argv[2].c_str());
+    }
+    else
+    {
+        if (News::CheckIfItemRequiresAssoc(itemType))
+        {
+            console.WriteLine("Selected ItemType requires an assoc");
+            return 0;
+        }
+    }
+
+    News::AddItemToQueue(itemType, msg, assoc);
+    console.WriteLine("Successfully added News Item");
+    return 0;
+}
 
 using console_command_func = int32_t (*)(InteractiveConsole& console, const arguments_t& argv);
 struct console_command
@@ -1613,8 +1746,6 @@ static constexpr const utf8* console_variable_table[] = {
     "climate",
     "game_speed",
     "console_small_font",
-    "test_unfinished_tracks",
-    "no_test_crashes",
     "location",
     "window_scale",
     "window_limit",
@@ -1629,6 +1760,7 @@ static constexpr const utf8* console_window_table[] = {
     "object_selection",
     "inventions_list",
     "scenario_options",
+    "objective_options",
     "options",
     "themes",
     "title_sequences"
@@ -1636,6 +1768,8 @@ static constexpr const utf8* console_window_table[] = {
 
 static constexpr const console_command console_command_table[] = {
     { "abort", cc_abort, "Calls std::abort(), for testing purposes only.", "abort" },
+    { "add_news_item", cc_add_news_item, "Inserts a news item", "add_news_item [<type> <message> <assoc>]" },
+    { "assert", cc_assert, "Triggers assertion failure, for testing purposes only", "assert" },
     { "clear", cc_clear, "Clears the console.", "clear" },
     { "close", cc_close, "Closes the console.", "close" },
     { "date", cc_for_date, "Sets the date to a given date.", "Format <year>[ <month>[ <day>]]." },
@@ -1649,12 +1783,13 @@ static constexpr const console_command console_command_table[] = {
                                     "Loading a scenery group will not load its associated objects.\n"
                                     "This is a safer method opposed to \"open object_selection\".",
                                     "load_object <objectfilenodat>" },
+    { "load_park", cc_load_park, "Load park from save directory or by absolute path", "load_park <filename>" },
     { "object_count", cc_object_count, "Shows the number of objects of each type in the scenario.", "object_count" },
     { "open", cc_open, "Opens the window with the give name.", "open <window>." },
     { "quit", cc_close, "Closes the console.", "quit" },
     { "remove_park_fences", cc_remove_park_fences, "Removes all park fences from the surface", "remove_park_fences" },
     { "remove_unused_objects", cc_remove_unused_objects, "Removes all the unused objects from the object selection.", "remove_unused_objects" },
-    { "reset_user_strings", cc_reset_user_strings, "Resets all user-defined strings, to fix incorrectly occurring 'Chosen name in use already' errors.", "reset_user_strings" },
+    { "remove_floating_objects", cc_remove_floating_objects, "Removes floating objects", "remove_floating_objects"},
     { "rides", cc_rides, "Ride management.", "rides <subcommand>" },
     { "save_park", cc_save_park, "Save current state of park. If no name specified default path will be used.", "save_park [name]" },
     { "say", cc_say, "Say to other players.", "say <message>" },
@@ -1662,7 +1797,6 @@ static constexpr const console_command console_command_table[] = {
     { "show_limits", cc_show_limits, "Shows the map data counts and limits.", "show_limits" },
     { "staff", cc_staff, "Staff management.", "staff <subcommand>" },
     { "terminate", cc_terminate, "Calls std::terminate(), for testing purposes only.", "terminate" },
-    { "twitch", cc_twitch, "Twitch API", "twitch" },
     { "variables", cc_variables, "Lists all the variables that can be used with get and sometimes set.", "variables" },
     { "windows", cc_windows, "Lists all the windows that can be opened.", "windows" },
     { "replay_startrecord", cc_replay_startrecord, "Starts recording a new replay.", "replay_startrecord <name> [max_ticks]"},
@@ -1670,7 +1804,8 @@ static constexpr const console_command console_command_table[] = {
     { "replay_start", cc_replay_start, "Starts a replay", "replay_start <name>"},
     { "replay_stop", cc_replay_stop, "Stops the replay", "replay_stop"},
     { "replay_normalise", cc_replay_normalise, "Normalises the replay to remove all gaps", "replay_normalise <input file> <output file>"},
-    
+    { "mp_desync", cc_mp_desync, "Forces a multiplayer desync", "cc_mp_desync [desync_type, 0 = Random t-shirt color on random guest, 1 = Remove random guest ]"},
+
 };
 // clang-format on
 
@@ -1796,17 +1931,17 @@ void InteractiveConsole::Execute(const std::string& s)
 
 void InteractiveConsole::WriteLine(const std::string& s)
 {
-    WriteLine(s, FORMAT_WINDOW_COLOUR_2);
+    WriteLine(s, FormatToken::ColourWindow2);
 }
 
 void InteractiveConsole::WriteLineError(const std::string& s)
 {
-    WriteLine(s, FORMAT_RED);
+    WriteLine(s, FormatToken::ColourRed);
 }
 
 void InteractiveConsole::WriteLineWarning(const std::string& s)
 {
-    WriteLine(s, FORMAT_YELLOW);
+    WriteLine(s, FormatToken::ColourYellow);
 }
 
 void InteractiveConsole::WriteFormatLine(const char* format, ...)

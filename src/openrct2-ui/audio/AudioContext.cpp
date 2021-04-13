@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (c) 2014-2019 OpenRCT2 developers
+ * Copyright (c) 2014-2020 OpenRCT2 developers
  *
  * For a complete list of all authors, please refer to contributors.md
  * Interested in contributing? Visit https://github.com/OpenRCT2/OpenRCT2
@@ -18,7 +18,7 @@
 
 namespace OpenRCT2::Audio
 {
-    class AudioContext : public IAudioContext
+    class AudioContext final : public IAudioContext
     {
     private:
         IAudioMixer* _audioMixer = nullptr;
@@ -50,8 +50,7 @@ namespace OpenRCT2::Audio
             int32_t numDevices = SDL_GetNumAudioDevices(SDL_FALSE);
             for (int32_t i = 0; i < numDevices; i++)
             {
-                std::string deviceName = String::ToStd(SDL_GetAudioDeviceName(i, SDL_FALSE));
-                devices.push_back(deviceName);
+                devices.emplace_back(String::ToStd(SDL_GetAudioDeviceName(i, SDL_FALSE)));
             }
             return devices;
         }
@@ -69,6 +68,11 @@ namespace OpenRCT2::Audio
         IAudioSource* CreateStreamFromWAV(const std::string& path) override
         {
             return AudioSource::CreateStreamFromWAV(path);
+        }
+
+        IAudioSource* CreateStreamFromWAV(std::unique_ptr<IStream> stream) override
+        {
+            return AudioSource::CreateStreamFromWAV(std::move(stream));
         }
 
         void StartTitleMusic() override
@@ -104,7 +108,7 @@ namespace OpenRCT2::Audio
         void StopCrowdSound() override
         {
         }
-        void StopRainSound() override
+        void StopWeatherSound() override
         {
         }
         void StopRideMusic() override

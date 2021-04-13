@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (c) 2014-2019 OpenRCT2 developers
+ * Copyright (c) 2014-2020 OpenRCT2 developers
  *
  * For a complete list of all authors, please refer to contributors.md
  * Interested in contributing? Visit https://github.com/OpenRCT2/OpenRCT2
@@ -13,14 +13,19 @@
 #include "Context.h"
 #include "Editor.h"
 #include "FileClassifier.h"
+#include "GameStateSnapshots.h"
 #include "Input.h"
 #include "OpenRCT2.h"
 #include "ParkImporter.h"
+#include "PlatformEnvironment.h"
 #include "ReplayManager.h"
-#include "actions/LoadOrQuitAction.hpp"
+#include "actions/LoadOrQuitAction.h"
 #include "audio/audio.h"
 #include "config/Config.h"
+#include "core/Console.hpp"
 #include "core/FileScanner.h"
+#include "core/Path.hpp"
+#include "interface/Colour.h"
 #include "interface/Screenshot.h"
 #include "interface/Viewport.h"
 #include "interface/Window.h"
@@ -34,7 +39,7 @@
 #include "object/ObjectList.h"
 #include "peep/Peep.h"
 #include "peep/Staff.h"
-#include "platform/platform.h"
+#include "platform/Platform2.h"
 #include "rct1/RCT1.h"
 #include "ride/Ride.h"
 #include "ride/RideRatings.h"
@@ -43,6 +48,7 @@
 #include "ride/TrackDesign.h"
 #include "ride/Vehicle.h"
 #include "scenario/Scenario.h"
+#include "scripting/ScriptEngine.h"
 #include "title/TitleScreen.h"
 #include "ui/UiContext.h"
 #include "ui/WindowManager.h"
@@ -62,6 +68,7 @@
 #include "world/Water.h"
 
 #include <algorithm>
+#include <cstdio>
 #include <iterator>
 #include <memory>
 
@@ -72,61 +79,22 @@ bool gDoSingleUpdate = false;
 float gDayNightCycle = 0;
 bool gInUpdateCode = false;
 bool gInMapInitCode = false;
-int32_t gGameCommandNestLevel;
-bool gGameCommandIsNetworked;
 std::string gCurrentLoadedPath;
 
 bool gLoadKeepWindowsOpen = false;
 
-uint8_t gUnk13CA740;
-uint8_t gUnk141F568;
-
 uint32_t gCurrentTicks;
 uint32_t gCurrentRealTimeTicks;
 
-// clang-format off
-GAME_COMMAND_CALLBACK_POINTER * game_command_callback = nullptr;
-static GAME_COMMAND_CALLBACK_POINTER * const game_command_callback_table[] = {
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    game_command_callback_pickup_guest,
-    game_command_callback_pickup_staff
-};
-// clang-format on
-int32_t game_command_playerid = -1;
-
 rct_string_id gGameCommandErrorTitle;
 rct_string_id gGameCommandErrorText;
-uint8_t gErrorType;
-rct_string_id gErrorStringId;
 
 using namespace OpenRCT2;
 
-int32_t game_command_callback_get_index(GAME_COMMAND_CALLBACK_POINTER* callback)
+void game_reset_speed()
 {
-    for (uint32_t i = 0; i < std::size(game_command_callback_table); i++)
-    {
-        if (game_command_callback_table[i] == callback)
-        {
-            return i;
-        }
-    }
-    return 0;
-}
-
-GAME_COMMAND_CALLBACK_POINTER* game_command_callback_get_callback(uint32_t index)
-{
-    if (index < std::size(game_command_callback_table))
-    {
-        return game_command_callback_table[index];
-    }
-    return nullptr;
+    gGameSpeed = 1;
+    window_invalidate_by_class(WC_TOP_TOOLBAR);
 }
 
 void game_increase_game_speed()
@@ -177,7 +145,7 @@ enum
  */
 void update_palette_effects()
 {
-    auto water_type = (rct_water_type*)object_entry_get_chunk(OBJECT_TYPE_WATER, 0);
+    auto water_type = static_cast<rct_water_type*>(object_entry_get_chunk(ObjectType::Water, 0));
 
     if (gClimateLightningFlash == 1)
     {
@@ -200,7 +168,7 @@ void update_palette_effects()
                 paletteOffset[(i * 4) + 1] = -((0xFF - g1->offset[(i * 3) + 1]) / 2) - 1;
                 paletteOffset[(i * 4) + 2] = -((0xFF - g1->offset[(i * 3) + 2]) / 2) - 1;
             }
-            platform_update_palette(gGamePalette, 10, 236);
+            platform_update_palette(gGamePalette, PALETTE_OFFSET_DYNAMIC, PALETTE_LENGTH_DYNAMIC);
         }
         gClimateLightningFlash++;
     }
@@ -236,17 +204,17 @@ void update_palette_effects()
         if (gConfigGeneral.render_weather_gloom)
         {
             auto paletteId = climate_get_weather_gloom_palette_id(gClimateCurrent);
-            if (paletteId != PALETTE_NULL)
+            if (paletteId != FilterPaletteID::PaletteNull)
             {
                 shade = 1;
-                if (paletteId != PALETTE_DARKEN_1)
+                if (paletteId != FilterPaletteID::PaletteDarken1)
                 {
                     shade = 2;
                 }
             }
         }
         uint32_t j = gPaletteEffectFrame;
-        j = (((uint16_t)((~j / 2) * 128) * 15) >> 16);
+        j = ((static_cast<uint16_t>((~j / 2) * 128) * 15) >> 16);
         uint32_t waterId = SPR_GAME_PALETTE_WATER;
         if (water_type != nullptr)
         {
@@ -256,8 +224,8 @@ void update_palette_effects()
         if (g1 != nullptr)
         {
             uint8_t* vs = &g1->offset[j * 3];
-            uint8_t* vd = &gGamePalette[230 * 4];
-            int32_t n = 5;
+            uint8_t* vd = &gGamePalette[PALETTE_OFFSET_WATER_WAVES * 4];
+            int32_t n = PALETTE_LENGTH_WATER_WAVES;
             for (int32_t i = 0; i < n; i++)
             {
                 vd[0] = vs[0];
@@ -281,8 +249,8 @@ void update_palette_effects()
         if (g1 != nullptr)
         {
             uint8_t* vs = &g1->offset[j * 3];
-            uint8_t* vd = &gGamePalette[235 * 4];
-            int32_t n = 5;
+            uint8_t* vd = &gGamePalette[PALETTE_OFFSET_WATER_SPARKLES * 4];
+            int32_t n = PALETTE_LENGTH_WATER_SPARKLES;
             for (int32_t i = 0; i < n; i++)
             {
                 vd[0] = vs[0];
@@ -297,13 +265,13 @@ void update_palette_effects()
             }
         }
 
-        j = ((uint16_t)(gPaletteEffectFrame * -960) * 3) >> 16;
+        j = (static_cast<uint16_t>(gPaletteEffectFrame * -960) * 3) >> 16;
         waterId = SPR_GAME_PALETTE_4;
         g1 = gfx_get_g1_element(shade + waterId);
         if (g1 != nullptr)
         {
             uint8_t* vs = &g1->offset[j * 3];
-            uint8_t* vd = &gGamePalette[243 * 4];
+            uint8_t* vd = &gGamePalette[PALETTE_INDEX_243 * 4];
             int32_t n = 3;
             for (int32_t i = 0; i < n; i++)
             {
@@ -319,277 +287,12 @@ void update_palette_effects()
             }
         }
 
-        platform_update_palette(gGamePalette, 230, 16);
+        platform_update_palette(gGamePalette, PALETTE_OFFSET_ANIMATED, PALETTE_LENGTH_ANIMATED);
         if (gClimateLightningFlash == 2)
         {
-            platform_update_palette(gGamePalette, 10, 236);
+            platform_update_palette(gGamePalette, PALETTE_OFFSET_DYNAMIC, PALETTE_LENGTH_DYNAMIC);
             gClimateLightningFlash = 0;
         }
-    }
-}
-/**
- *
- *  rct2: 0x0069C62C
- *
- * @param cost (ebp)
- */
-static int32_t game_check_affordability(int32_t cost, uint32_t flags)
-{
-    // Only checked for game commands.
-    if (gUnk141F568 & 0xF0)
-        return cost;
-
-    if (finance_check_affordability(cost, flags))
-        return cost;
-
-    set_format_arg(0, uint32_t, cost);
-    gGameCommandErrorText = STR_NOT_ENOUGH_CASH_REQUIRES;
-    return MONEY32_UNDEFINED;
-}
-
-/**
- *
- *  rct2: 0x006677F2
- *
- * @param ebx flags
- * @param esi command
- */
-int32_t game_do_command(int32_t eax, int32_t ebx, int32_t ecx, int32_t edx, int32_t esi, int32_t edi, int32_t ebp)
-{
-    return game_do_command_p(esi, &eax, &ebx, &ecx, &edx, &esi, &edi, &ebp);
-}
-
-/**
- *
- *  rct2: 0x006677F2 with pointers as arguments
- *
- * @param ebx flags
- * @param esi command
- */
-int32_t game_do_command_p(
-    uint32_t command, int32_t* eax, int32_t* ebx, int32_t* ecx, int32_t* edx, int32_t* esi, int32_t* edi, int32_t* ebp)
-{
-    int32_t cost, flags;
-    int32_t original_ebx, original_edx, original_esi, original_edi, original_ebp;
-
-    *esi = command;
-    original_ebx = *ebx;
-    original_edx = *edx;
-    original_esi = *esi;
-    original_edi = *edi;
-    original_ebp = *ebp;
-
-    if (command >= std::size(new_game_command_table))
-    {
-        return MONEY32_UNDEFINED;
-    }
-
-    flags = *ebx;
-
-    auto* replayManager = GetContext()->GetReplayManager();
-    if (replayManager->IsReplaying())
-    {
-        // We only accept replay commands as long the replay is active.
-        if ((flags & GAME_COMMAND_FLAG_REPLAY) == 0)
-        {
-            // TODO: Introduce proper error.
-            gGameCommandErrorText = STR_CHEAT_BUILD_IN_PAUSE_MODE;
-            return MONEY32_UNDEFINED;
-        }
-    }
-
-    if (gGameCommandNestLevel == 0)
-    {
-        gGameCommandErrorText = STR_NONE;
-        gGameCommandIsNetworked = (flags & GAME_COMMAND_FLAG_NETWORKED) != 0;
-    }
-
-    // Increment nest count
-    gGameCommandNestLevel++;
-
-    if (game_command_playerid == -1)
-    {
-        game_command_playerid = network_get_current_player_id();
-    }
-
-    // Log certain commands if we are in multiplayer and logging is enabled
-    bool serverLog = (network_get_mode() == NETWORK_MODE_SERVER) && gGameCommandNestLevel == 1
-        && gConfigNetwork.log_server_actions;
-    bool clientLog = (network_get_mode() == NETWORK_MODE_CLIENT) && (flags & GAME_COMMAND_FLAG_NETWORKED)
-        && gGameCommandNestLevel == 1 && gConfigNetwork.log_server_actions;
-    if (serverLog || clientLog)
-    {
-        game_log_multiplayer_command(command, eax, ebx, ecx, edx, edi, ebp);
-    }
-
-    *ebx &= ~GAME_COMMAND_FLAG_APPLY;
-
-    // Make sure the camera position won't change if the command skips setting them.
-    gCommandPosition.x = LOCATION_NULL;
-    gCommandPosition.y = LOCATION_NULL;
-    gCommandPosition.z = LOCATION_NULL;
-
-    // First call for validity and price check
-    new_game_command_table[command](eax, ebx, ecx, edx, esi, edi, ebp);
-    cost = *ebx;
-
-    if (cost != MONEY32_UNDEFINED)
-    {
-        // Check funds
-        int32_t insufficientFunds = 0;
-        if (gGameCommandNestLevel == 1 && !(flags & GAME_COMMAND_FLAG_NO_SPEND) && cost != 0)
-            insufficientFunds = game_check_affordability(cost, flags);
-
-        if (insufficientFunds != MONEY32_UNDEFINED)
-        {
-            *ebx = original_ebx;
-            *edx = original_edx;
-            *esi = original_esi;
-            *edi = original_edi;
-            *ebp = original_ebp;
-
-            if (!(flags & GAME_COMMAND_FLAG_APPLY))
-            {
-                // Decrement nest count
-                gGameCommandNestLevel--;
-                return cost;
-            }
-
-            if (network_get_mode() != NETWORK_MODE_NONE && !(flags & GAME_COMMAND_FLAG_NETWORKED)
-                && !(flags & GAME_COMMAND_FLAG_GHOST) && !(flags & GAME_COMMAND_FLAG_NO_SPEND)
-                && gGameCommandNestLevel == 1) /* Send only top-level commands */
-            {
-                network_send_gamecmd(
-                    *eax, *ebx, *ecx, *edx, *esi, *edi, *ebp, game_command_callback_get_index(game_command_callback));
-                if (network_get_mode() == NETWORK_MODE_CLIENT)
-                {
-                    // Client sent the command to the server, do not run it locally, just return.  It will run when server
-                    // sends it.
-                    game_command_callback = nullptr;
-                    // Decrement nest count
-                    gGameCommandNestLevel--;
-                    return cost;
-                }
-            }
-
-            // Second call to actually perform the operation
-            new_game_command_table[command](eax, ebx, ecx, edx, esi, edi, ebp);
-
-            if (replayManager != nullptr)
-            {
-                bool recordCommand = false;
-                bool commandExecutes = (flags & GAME_COMMAND_FLAG_APPLY) && (flags & GAME_COMMAND_FLAG_GHOST) == 0
-                    && (flags & GAME_COMMAND_FLAG_NO_SPEND) == 0;
-
-                if (replayManager->IsRecording() && commandExecutes)
-                    recordCommand = true;
-                else if (replayManager->IsNormalising() && commandExecutes && (flags & GAME_COMMAND_FLAG_REPLAY) != 0)
-                    recordCommand = true;
-
-                if (recordCommand && gGameCommandNestLevel == 1)
-                {
-                    int32_t callback = game_command_callback_get_index(game_command_callback);
-
-                    replayManager->AddGameCommand(
-                        gCurrentTicks, *eax, original_ebx, *ecx, original_edx, original_esi, original_edi, original_ebp,
-                        callback);
-                }
-            }
-
-            // Do the callback (required for multiplayer to work correctly), but only for top level commands
-            if (gGameCommandNestLevel == 1)
-            {
-                if (game_command_callback && !(flags & GAME_COMMAND_FLAG_GHOST))
-                {
-                    game_command_callback(*eax, *ebx, *ecx, *edx, *esi, *edi, *ebp);
-                    game_command_callback = nullptr;
-                }
-            }
-
-            game_command_playerid = -1;
-
-            *edx = *ebx;
-
-            if (*edx != MONEY32_UNDEFINED && *edx < cost)
-                cost = *edx;
-
-            // Decrement nest count
-            gGameCommandNestLevel--;
-            if (gGameCommandNestLevel != 0)
-                return cost;
-
-            // Check if money is required.
-            if (finance_check_money_required(flags))
-            {
-                // Update money balance
-                finance_payment(cost, gCommandExpenditureType);
-                if (gUnk141F568 == gUnk13CA740)
-                {
-                    // Create a +/- money text effect
-                    if (cost != 0 && game_is_not_paused())
-                        money_effect_create(cost);
-                }
-            }
-
-            if (network_get_mode() == NETWORK_MODE_SERVER && !(flags & GAME_COMMAND_FLAG_NETWORKED)
-                && !(flags & GAME_COMMAND_FLAG_GHOST))
-            {
-                network_set_player_last_action(network_get_player_index(network_get_current_player_id()), command);
-                network_add_player_money_spent(network_get_current_player_id(), cost);
-            }
-
-            // Start autosave timer after game command
-            if (gLastAutoSaveUpdate == AUTOSAVE_PAUSE)
-                gLastAutoSaveUpdate = platform_get_ticks();
-
-            return cost;
-        }
-    }
-
-    // Error occurred
-
-    // Decrement nest count
-    gGameCommandNestLevel--;
-
-    // Clear the game command callback to prevent the next command triggering it
-    game_command_callback = nullptr;
-
-    // Show error window
-    if (gGameCommandNestLevel == 0 && (flags & GAME_COMMAND_FLAG_APPLY) && gUnk141F568 == gUnk13CA740
-        && !(flags & GAME_COMMAND_FLAG_ALLOW_DURING_PAUSED) && !(flags & GAME_COMMAND_FLAG_NETWORKED)
-        && !(flags & GAME_COMMAND_FLAG_GHOST))
-    {
-        context_show_error(gGameCommandErrorTitle, gGameCommandErrorText);
-    }
-
-    return MONEY32_UNDEFINED;
-}
-
-void game_log_multiplayer_command(int command, const int* eax, const int* ebx, const int* ecx, int* edx, int* edi, int* ebp)
-{
-    // Get player name
-    const char* player_name = "localhost";
-
-    int player_index = network_get_player_index(game_command_playerid);
-    if (player_index != -1)
-    {
-        player_name = network_get_player_name(player_index);
-    }
-
-    char log_msg[256];
-    if (command == GAME_COMMAND_DEMOLISH_RIDE && (*ebp == 1 || *ebp == 0))
-    { // ebp is 1 if command comes from ride window prompt, so we don't log "demolishing" ride previews
-        // Get ride name
-        Ride* ride = get_ride(*edx);
-        char ride_name[128];
-        format_string(ride_name, 128, ride->name, &ride->name_arguments);
-
-        char* args[2] = {
-            (char*)player_name,
-            ride_name,
-        };
-        format_string(log_msg, 256, STR_LOG_DEMOLISH_RIDE, args);
-        network_append_server_log(log_msg);
     }
 }
 
@@ -599,7 +302,7 @@ void pause_toggle()
     window_invalidate_by_class(WC_TOP_TOOLBAR);
     if (gGamePaused & GAME_PAUSED_NORMAL)
     {
-        audio_stop_all_music_and_sounds();
+        OpenRCT2::Audio::StopAll();
     }
 }
 
@@ -633,7 +336,7 @@ void utf8_to_rct2_self(char* buffer, size_t length)
     char* dst = buffer;
     while (*src != 0 && i < length - 1)
     {
-        if (*src == (char)(uint8_t)0xFF)
+        if (*src == static_cast<char>(static_cast<uint8_t>(0xFF)))
         {
             if (i < length - 3)
             {
@@ -664,7 +367,7 @@ void rct2_to_utf8_self(char* buffer, size_t length)
 {
     if (length > 0)
     {
-        auto temp = rct2_to_utf8(buffer, RCT2_LANGUAGE_ID_ENGLISH_UK);
+        auto temp = rct2_to_utf8(buffer, RCT2LanguageId::EnglishUK);
         safe_strcpy(buffer, temp.data(), length);
     }
 }
@@ -675,35 +378,9 @@ void rct2_to_utf8_self(char* buffer, size_t length)
 void game_convert_strings_to_utf8()
 {
     // Scenario details
-    gScenarioCompletedBy = rct2_to_utf8(gScenarioCompletedBy, RCT2_LANGUAGE_ID_ENGLISH_UK);
-    gScenarioName = rct2_to_utf8(gScenarioName, RCT2_LANGUAGE_ID_ENGLISH_UK);
-    gScenarioDetails = rct2_to_utf8(gScenarioDetails, RCT2_LANGUAGE_ID_ENGLISH_UK);
-
-    // User strings
-    for (auto* string : gUserStrings)
-    {
-        if (!str_is_null_or_empty(string))
-        {
-            rct2_to_utf8_self(string, RCT12_USER_STRING_MAX_LENGTH);
-            utf8_remove_formatting(string, true);
-        }
-    }
-
-    // News items
-    game_convert_news_items_to_utf8();
-}
-
-void game_convert_news_items_to_utf8()
-{
-    for (int32_t i = 0; i < MAX_NEWS_ITEMS; i++)
-    {
-        NewsItem* newsItem = news_item_get(i);
-
-        if (!str_is_null_or_empty(newsItem->Text))
-        {
-            rct2_to_utf8_self(newsItem->Text, sizeof(newsItem->Text));
-        }
-    }
+    gScenarioCompletedBy = rct2_to_utf8(gScenarioCompletedBy, RCT2LanguageId::EnglishUK);
+    gScenarioName = rct2_to_utf8(gScenarioName, RCT2LanguageId::EnglishUK);
+    gScenarioDetails = rct2_to_utf8(gScenarioDetails, RCT2LanguageId::EnglishUK);
 }
 
 /**
@@ -724,15 +401,6 @@ void game_convert_strings_to_rct2(rct_s6_data* s6)
             utf8_to_rct2_self(userString, RCT12_USER_STRING_MAX_LENGTH);
         }
     }
-
-    // News items
-    for (auto& newsItem : s6->news_items)
-    {
-        if (!str_is_null_or_empty(newsItem.Text))
-        {
-            utf8_to_rct2_self(newsItem.Text, sizeof(newsItem.Text));
-        }
-    }
 }
 
 // OpenRCT2 workaround to recalculate some values which are saved redundantly in the save to fix corrupted files.
@@ -740,48 +408,54 @@ void game_convert_strings_to_rct2(rct_s6_data* s6)
 void game_fix_save_vars()
 {
     // Recalculates peep count after loading a save to fix corrupted files
-    Peep* peep;
-    uint16_t spriteIndex;
-    uint16_t peepCount = 0;
-    FOR_ALL_GUESTS (spriteIndex, peep)
+    uint32_t guestCount = 0;
     {
-        if (!peep->outside_of_park)
-            peepCount++;
+        for (auto guest : EntityList<Guest>())
+        {
+            if (!guest->OutsideOfPark)
+            {
+                guestCount++;
+            }
+        }
     }
 
-    gNumGuestsInPark = peepCount;
-
-    peep_sort();
+    gNumGuestsInPark = guestCount;
 
     // Peeps to remove have to be cached here, as removing them from within the loop breaks iteration
     std::vector<Peep*> peepsToRemove;
 
     // Fix possibly invalid field values
-    FOR_ALL_GUESTS (spriteIndex, peep)
+    for (auto peep : EntityList<Guest>())
     {
-        if (peep->current_ride_station >= MAX_STATIONS)
+        if (peep->CurrentRideStation >= MAX_STATIONS)
         {
-            const uint8_t srcStation = peep->current_ride_station;
-            const uint8_t rideIdx = peep->current_ride;
+            const auto srcStation = peep->CurrentRideStation;
+            const auto rideIdx = peep->CurrentRide;
             if (rideIdx == RIDE_ID_NULL)
             {
                 continue;
             }
-            set_format_arg(0, uint32_t, peep->id);
-            utf8* curName = gCommonStringFormatBuffer;
-            rct_string_id curId = peep->name_string_idx;
-            format_string(curName, 256, curId, gCommonFormatArgs);
-            log_warning("Peep %u (%s) has invalid ride station = %u for ride %u.", spriteIndex, curName, srcStation, rideIdx);
-            int8_t station = ride_get_first_valid_station_exit(get_ride(rideIdx));
-            if (station == -1)
+            Ride* ride = get_ride(rideIdx);
+            if (ride == nullptr)
             {
-                log_warning("Couldn't find station, removing peep %u", spriteIndex);
+                log_warning("Couldn't find ride %u, resetting ride on peep %u", rideIdx, peep->sprite_index);
+                peep->CurrentRide = RIDE_ID_NULL;
+                continue;
+            }
+            auto curName = peep->GetName();
+            log_warning(
+                "Peep %u (%s) has invalid ride station = %u for ride %u.", peep->sprite_index, curName.c_str(), srcStation,
+                rideIdx);
+            auto station = ride_get_first_valid_station_exit(ride);
+            if (station == STATION_INDEX_NULL)
+            {
+                log_warning("Couldn't find station, removing peep %u", peep->sprite_index);
                 peepsToRemove.push_back(peep);
             }
             else
             {
                 log_warning("Amending ride station to %u.", station);
-                peep->current_ride_station = station;
+                peep->CurrentRideStation = station;
             }
         }
     }
@@ -803,13 +477,13 @@ void game_fix_save_vars()
     {
         for (int32_t x = 0; x < MAXIMUM_MAP_SIZE_TECHNICAL; x++)
         {
-            TileElement* tileElement = map_get_surface_element_at(x, y);
+            auto* surfaceElement = map_get_surface_element_at(TileCoordsXY{ x, y }.ToCoordsXY());
 
-            if (tileElement == nullptr)
+            if (surfaceElement == nullptr)
             {
                 log_error("Null map element at x = %d and y = %d. Fixing...", x, y);
-                tileElement = tile_element_insert(x, y, 14, 0);
-                if (tileElement == nullptr)
+                surfaceElement = TileElementInsert<SurfaceElement>(TileCoordsXYZ{ x, y, 14 }.ToCoordsXYZ(), 0b0000);
+                if (surfaceElement == nullptr)
                 {
                     log_error("Unable to fix: Map element limit reached.");
                     return;
@@ -817,13 +491,13 @@ void game_fix_save_vars()
             }
 
             // Fix the invisible border tiles.
-            // At this point, we can be sure that tileElement is not NULL.
+            // At this point, we can be sure that surfaceElement is not NULL.
             if (x == 0 || x == gMapSize - 1 || y == 0 || y == gMapSize - 1)
             {
-                tileElement->base_height = 2;
-                tileElement->clearance_height = 2;
-                tileElement->AsSurface()->SetSlope(0);
-                tileElement->AsSurface()->SetWaterHeight(0);
+                surfaceElement->SetBaseZ(MINIMUM_LAND_HEIGHT_BIG);
+                surfaceElement->SetClearanceZ(MINIMUM_LAND_HEIGHT_BIG);
+                surfaceElement->SetSlope(0);
+                surfaceElement->SetWaterHeight(0);
             }
         }
     }
@@ -847,8 +521,11 @@ void game_load_init()
 {
     rct_window* mainWindow;
 
+    IGameStateSnapshots* snapshots = GetContext()->GetGameStateSnapshots();
+    snapshots->Reset();
+
     gScreenFlags = SCREEN_FLAGS_PLAYING;
-    audio_stop_all_music_and_sounds();
+    OpenRCT2::Audio::StopAll();
     if (!gLoadKeepWindowsOpen)
     {
         viewport_init_all();
@@ -862,12 +539,13 @@ void game_load_init()
     }
 
     auto windowManager = GetContext()->GetUiContext()->GetWindowManager();
-    windowManager->SetMainView(gSavedViewX, gSavedViewY, gSavedViewZoom, gSavedViewRotation);
+    windowManager->SetMainView(gSavedView, gSavedViewZoom, gSavedViewRotation);
 
     if (network_get_mode() != NETWORK_MODE_CLIENT)
     {
-        reset_sprite_spatial_index();
+        GameActions::ClearQueue();
     }
+    reset_sprite_spatial_index();
     reset_all_sprite_quadrant_placements();
     scenery_set_default_placement_configuration();
 
@@ -885,8 +563,22 @@ void game_load_init()
         window_update_all();
     }
 
-    audio_stop_title_music();
+    OpenRCT2::Audio::StopTitleMusic();
     gGameSpeed = 1;
+}
+
+void game_load_scripts()
+{
+#ifdef ENABLE_SCRIPTING
+    GetContext()->GetScriptEngine().LoadPlugins();
+#endif
+}
+
+void game_unload_scripts()
+{
+#ifdef ENABLE_SCRIPTING
+    GetContext()->GetScriptEngine().UnloadPlugins();
+#endif
 }
 
 /**
@@ -896,12 +588,12 @@ void game_load_init()
  */
 void reset_all_sprite_quadrant_placements()
 {
-    for (size_t i = 0; i < MAX_SPRITES; i++)
+    for (size_t i = 0; i < MAX_ENTITIES; i++)
     {
-        rct_sprite* spr = get_sprite(i);
-        if (spr->generic.sprite_identifier != SPRITE_IDENTIFIER_NULL)
+        auto* spr = GetEntity(i);
+        if (spr != nullptr && spr->Type != EntityType::Null)
         {
-            sprite_move(spr->generic.x, spr->generic.y, spr->generic.z, spr);
+            spr->MoveTo({ spr->x, spr->y, spr->z });
         }
     }
 }
@@ -960,14 +652,9 @@ void* create_save_game_as_intent()
 
 void save_game_as()
 {
-    auto* intent = (Intent*)create_save_game_as_intent();
+    auto* intent = static_cast<Intent*>(create_save_game_as_intent());
     context_open_intent(intent);
     delete intent;
-}
-
-static int32_t compare_autosave_file_paths(const void* a, const void* b)
-{
-    return strcmp(*(char**)a, *(char**)b);
 }
 
 static void limit_autosave_count(const size_t numberOfFilesToKeep, bool processLandscapeFolder)
@@ -975,22 +662,19 @@ static void limit_autosave_count(const size_t numberOfFilesToKeep, bool processL
     size_t autosavesCount = 0;
     size_t numAutosavesToDelete = 0;
 
-    utf8 filter[MAX_PATH];
-
-    utf8** autosaveFiles = nullptr;
-
+    auto environment = GetContext()->GetPlatformEnvironment();
+    auto folderDirectory = environment->GetDirectoryPath(DIRBASE::USER, DIRID::SAVE);
+    char const* fileFilter = "autosave_*.sv6";
     if (processLandscapeFolder)
     {
-        platform_get_user_directory(filter, "landscape", sizeof(filter));
-        safe_strcat_path(filter, "autosave", sizeof(filter));
-        safe_strcat_path(filter, "autosave_*.sc6", sizeof(filter));
+        folderDirectory = environment->GetDirectoryPath(DIRBASE::USER, DIRID::LANDSCAPE);
+        fileFilter = "autosave_*.sc6";
     }
-    else
-    {
-        platform_get_user_directory(filter, "save", sizeof(filter));
-        safe_strcat_path(filter, "autosave", sizeof(filter));
-        safe_strcat_path(filter, "autosave_*.sv6", sizeof(filter));
-    }
+
+    utf8 filter[MAX_PATH];
+    safe_strcpy(filter, folderDirectory.c_str(), sizeof(filter));
+    safe_strcat_path(filter, "autosave", sizeof(filter));
+    safe_strcat_path(filter, fileFilter, sizeof(filter));
 
     // At first, count how many autosaves there are
     {
@@ -1007,47 +691,35 @@ static void limit_autosave_count(const size_t numberOfFilesToKeep, bool processL
         return;
     }
 
-    autosaveFiles = (utf8**)malloc(sizeof(utf8*) * autosavesCount);
-
+    auto autosaveFiles = std::vector<std::string>(autosavesCount);
     {
         auto scanner = std::unique_ptr<IFileScanner>(Path::ScanDirectory(filter, false));
         for (size_t i = 0; i < autosavesCount; i++)
         {
-            autosaveFiles[i] = (utf8*)malloc(sizeof(utf8) * MAX_PATH);
-            std::memset(autosaveFiles[i], 0, sizeof(utf8) * MAX_PATH);
-
+            autosaveFiles[i].resize(MAX_PATH, 0);
             if (scanner->Next())
             {
-                if (processLandscapeFolder)
-                {
-                    platform_get_user_directory(autosaveFiles[i], "landscape", sizeof(utf8) * MAX_PATH);
-                }
-                else
-                {
-                    platform_get_user_directory(autosaveFiles[i], "save", sizeof(utf8) * MAX_PATH);
-                }
-                safe_strcat_path(autosaveFiles[i], "autosave", sizeof(utf8) * MAX_PATH);
-                safe_strcat_path(autosaveFiles[i], scanner->GetPathRelative(), sizeof(utf8) * MAX_PATH);
+                safe_strcpy(autosaveFiles[i].data(), folderDirectory.c_str(), sizeof(utf8) * MAX_PATH);
+                safe_strcat_path(autosaveFiles[i].data(), "autosave", sizeof(utf8) * MAX_PATH);
+                safe_strcat_path(autosaveFiles[i].data(), scanner->GetPathRelative(), sizeof(utf8) * MAX_PATH);
             }
         }
     }
 
-    qsort(autosaveFiles, autosavesCount, sizeof(char*), compare_autosave_file_paths);
+    std::sort(autosaveFiles.begin(), autosaveFiles.end(), [](const auto& saveFile0, const auto& saveFile1) {
+        return saveFile0.compare(saveFile1) < 0;
+    });
 
     // Calculate how many saves we need to delete.
     numAutosavesToDelete = autosavesCount - numberOfFilesToKeep;
 
     for (size_t i = 0; numAutosavesToDelete > 0; i++, numAutosavesToDelete--)
     {
-        platform_file_delete(autosaveFiles[i]);
+        if (!platform_file_delete(autosaveFiles[i].data()))
+        {
+            log_warning("Failed to delete autosave file: %s", autosaveFiles[i].data());
+        }
     }
-
-    for (size_t i = 0; i < autosavesCount; i++)
-    {
-        free(autosaveFiles[i]);
-    }
-
-    free(autosaveFiles);
 }
 
 void game_autosave()
@@ -1063,10 +735,8 @@ void game_autosave()
     }
 
     // Retrieve current time
-    rct2_date currentDate;
-    platform_get_date_local(&currentDate);
-    rct2_time currentTime;
-    platform_get_time_local(&currentTime);
+    auto currentDate = Platform::GetDateLocal();
+    auto currentTime = Platform::GetTimeLocal();
 
     utf8 timeName[44];
     snprintf(
@@ -1087,20 +757,23 @@ void game_autosave()
     safe_strcat(backupPath, fileExtension, sizeof(backupPath));
     safe_strcat(backupPath, ".bak", sizeof(backupPath));
 
-    if (platform_file_exists(path))
+    if (Platform::FileExists(path))
     {
         platform_file_copy(path, backupPath, true);
     }
 
-    scenario_save(path, saveFlags);
+    if (!scenario_save(path, saveFlags))
+        Console::Error::WriteLine("Could not autosave the scenario. Is the save folder writeable?");
 }
 
 static void game_load_or_quit_no_save_prompt_callback(int32_t result, const utf8* path)
 {
     if (result == MODAL_RESULT_OK)
     {
+        game_unload_scripts();
         window_close_by_class(WC_EDITOR_OBJECT_SELECTION);
         context_load_park_from_file(path);
+        game_load_scripts();
     }
 }
 
@@ -1112,7 +785,7 @@ void game_load_or_quit_no_save_prompt()
 {
     switch (gSavePromptMode)
     {
-        case PM_SAVE_BEFORE_LOAD:
+        case PromptMode::SaveBeforeLoad:
         {
             auto loadOrQuitAction = LoadOrQuitAction(LoadOrQuitModes::CloseSavePrompt);
             GameActions::Execute(&loadOrQuitAction);
@@ -1125,12 +798,12 @@ void game_load_or_quit_no_save_prompt()
             {
                 auto intent = Intent(WC_LOADSAVE);
                 intent.putExtra(INTENT_EXTRA_LOADSAVE_TYPE, LOADSAVETYPE_LOAD | LOADSAVETYPE_GAME);
-                intent.putExtra(INTENT_EXTRA_CALLBACK, (void*)game_load_or_quit_no_save_prompt_callback);
+                intent.putExtra(INTENT_EXTRA_CALLBACK, reinterpret_cast<void*>(game_load_or_quit_no_save_prompt_callback));
                 context_open_intent(&intent);
             }
             break;
         }
-        case PM_SAVE_BEFORE_QUIT:
+        case PromptMode::SaveBeforeQuit:
         {
             auto loadOrQuitAction = LoadOrQuitAction(LoadOrQuitModes::CloseSavePrompt);
             GameActions::Execute(&loadOrQuitAction);
@@ -1141,87 +814,55 @@ void game_load_or_quit_no_save_prompt()
             }
             gGameSpeed = 1;
             gFirstTimeSaving = true;
+            game_unload_scripts();
             title_load();
             break;
         }
         default:
+            game_unload_scripts();
             openrct2_finish();
             break;
     }
 }
 
-GAME_COMMAND_POINTER* new_game_command_table[GAME_COMMAND_COUNT] = {
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    game_command_create_ride,
-    game_command_demolish_ride,
-    game_command_set_ride_status,
-    nullptr,
-    game_command_set_ride_name,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    game_command_set_guest_name,
-    game_command_set_staff_name,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    game_command_buy_land_rights,
-    game_command_place_park_entrance,
-    nullptr,
-    game_command_set_maze_track,
-    game_command_set_park_entrance_fee,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    game_command_place_track_design,
-    nullptr,
-    game_command_place_maze_design,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    game_command_set_land_ownership,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    game_command_modify_groups,
-    game_command_kick_player,
-    nullptr,
-    game_command_pickup_guest,
-    game_command_pickup_staff,
-    game_command_balloon_press,
-    game_command_modify_tile,
-    game_command_edit_scenario_options,
-    NULL,
-};
+void start_silent_record()
+{
+    std::string name = Path::Combine(
+        OpenRCT2::GetContext()->GetPlatformEnvironment()->GetDirectoryPath(OpenRCT2::DIRBASE::USER), "debug_replay.sv6r");
+    auto* replayManager = OpenRCT2::GetContext()->GetReplayManager();
+    if (replayManager->StartRecording(name, OpenRCT2::k_MaxReplayTicks, OpenRCT2::IReplayManager::RecordType::SILENT))
+    {
+        OpenRCT2::ReplayRecordInfo info;
+        replayManager->GetCurrentReplayInfo(info);
+        safe_strcpy(gSilentRecordingName, info.FilePath.c_str(), MAX_PATH);
+
+        const char* logFmt = "Silent replay recording started: (%s) %s\n";
+        printf(logFmt, info.Name.c_str(), info.FilePath.c_str());
+    }
+}
+
+bool stop_silent_record()
+{
+    auto* replayManager = OpenRCT2::GetContext()->GetReplayManager();
+    if (!replayManager->IsRecording() && !replayManager->IsNormalising())
+    {
+        return false;
+    }
+
+    OpenRCT2::ReplayRecordInfo info;
+    replayManager->GetCurrentReplayInfo(info);
+
+    if (replayManager->StopRecording())
+    {
+        const char* logFmt = "Replay recording stopped: (%s) %s\n"
+                             "  Ticks: %u\n"
+                             "  Commands: %u\n"
+                             "  Checksums: %u";
+
+        printf(logFmt, info.Name.c_str(), info.FilePath.c_str(), info.Ticks, info.NumCommands, info.NumChecksums);
+
+        return true;
+    }
+
+    return false;
+}

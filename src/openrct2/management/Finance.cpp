@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (c) 2014-2019 OpenRCT2 developers
+ * Copyright (c) 2014-2020 OpenRCT2 developers
  *
  * For a complete list of all authors, please refer to contributors.md
  * Interested in contributing? Visit https://github.com/OpenRCT2/OpenRCT2
@@ -24,18 +24,6 @@
 #include "../world/Park.h"
 #include "../world/Sprite.h"
 
-/**
- * Monthly staff wages
- *
- * rct2: 0x00992A00
- */
-const money32 wage_table[STAFF_TYPE_COUNT] = {
-    MONEY(50, 00), // Handyman
-    MONEY(80, 00), // Mechanic
-    MONEY(60, 00), // Security guard
-    MONEY(55, 00), // Entertainer
-};
-
 // Monthly research funding costs
 const money32 research_cost_table[RESEARCH_FUNDING_COUNT] = {
     MONEY(0, 00),   // No funding
@@ -44,7 +32,7 @@ const money32 research_cost_table[RESEARCH_FUNDING_COUNT] = {
     MONEY(400, 00), // Maximum funding
 };
 
-static constexpr const int32_t dword_988E60[RCT_EXPENDITURE_TYPE_COUNT] = {
+static constexpr const int32_t dword_988E60[static_cast<int32_t>(ExpenditureType::Count)] = {
     1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 0, 0,
 };
 
@@ -61,9 +49,7 @@ uint16_t gWeeklyProfitAverageDivisor;
 money32 gCashHistory[FINANCE_GRAPH_SIZE];
 money32 gWeeklyProfitHistory[FINANCE_GRAPH_SIZE];
 money32 gParkValueHistory[FINANCE_GRAPH_SIZE];
-money32 gExpenditureTable[EXPENDITURE_TABLE_MONTH_COUNT][RCT_EXPENDITURE_TYPE_COUNT];
-
-uint8_t gCommandExpenditureType;
+money32 gExpenditureTable[EXPENDITURE_TABLE_MONTH_COUNT][static_cast<int32_t>(ExpenditureType::Count)];
 
 /**
  * Checks the condition if the game is required to use money.
@@ -89,13 +75,7 @@ bool finance_check_money_required(uint32_t flags)
  */
 bool finance_check_affordability(money32 cost, uint32_t flags)
 {
-    if (cost <= 0)
-        return true;
-    if (finance_check_money_required(flags) == false)
-        return true;
-    if (cost > gCash)
-        return false;
-    return true;
+    return cost <= 0 || !finance_check_money_required(flags) || cost <= gCash;
 }
 
 /**
@@ -104,13 +84,13 @@ bool finance_check_affordability(money32 cost, uint32_t flags)
  * @param amount (eax)
  * @param type passed via global var 0x0141F56C (RCT2_ADDRESS_NEXT_EXPENDITURE_TYPE), our type is that var/4.
  */
-void finance_payment(money32 amount, rct_expenditure_type type)
+void finance_payment(money32 amount, ExpenditureType type)
 {
     // overflow check
     gCash = add_clamp_money32(gCash, -amount);
 
-    gExpenditureTable[0][type] -= amount;
-    if (dword_988E60[type] & 1)
+    gExpenditureTable[0][static_cast<int32_t>(type)] -= amount;
+    if (dword_988E60[static_cast<int32_t>(type)] & 1)
     {
         // Cumulative amount of money spent this day
         gCurrentExpenditure -= amount;
@@ -126,17 +106,14 @@ void finance_payment(money32 amount, rct_expenditure_type type)
  */
 void finance_pay_wages()
 {
-    Peep* peep;
-    uint16_t spriteIndex;
-
     if (gParkFlags & PARK_FLAGS_NO_MONEY)
     {
         return;
     }
 
-    FOR_ALL_STAFF (spriteIndex, peep)
+    for (auto peep : EntityList<Staff>())
     {
-        finance_payment(wage_table[peep->staff_type] / 4, RCT_EXPENDITURE_TYPE_WAGES);
+        finance_payment(GetStaffWage(peep->AssignedStaffType) / 4, ExpenditureType::Wages);
     }
 }
 
@@ -146,15 +123,13 @@ void finance_pay_wages()
  **/
 void finance_pay_research()
 {
-    uint8_t level;
-
     if (gParkFlags & PARK_FLAGS_NO_MONEY)
     {
         return;
     }
 
-    level = gResearchFundingLevel;
-    finance_payment(research_cost_table[level] / 4, RCT_EXPENDITURE_TYPE_RESEARCH);
+    const uint8_t level = gResearchFundingLevel;
+    finance_payment(research_cost_table[level] / 4, ExpenditureType::Research);
 }
 
 /**
@@ -163,20 +138,18 @@ void finance_pay_research()
  */
 void finance_pay_interest()
 {
-    // This variable uses the 64-bit type as the computation below can involve multiplying very large numbers
-    // that will overflow money32 if the loan is greater than (1 << 31) / (5 * current_interest_rate)
-    money64 current_loan = gBankLoan;
-    uint8_t current_interest_rate = gBankLoanInterestRate;
-    money32 interest_to_pay;
-
     if (gParkFlags & PARK_FLAGS_NO_MONEY)
     {
         return;
     }
 
-    interest_to_pay = (current_loan * 5 * current_interest_rate) >> 14;
+    // This variable uses the 64-bit type as the computation below can involve multiplying very large numbers
+    // that will overflow money32 if the loan is greater than (1 << 31) / (5 * current_interest_rate)
+    const money64 current_loan = gBankLoan;
+    const uint8_t current_interest_rate = gBankLoanInterestRate;
+    const money32 interest_to_pay = (current_loan * 5 * current_interest_rate) >> 14;
 
-    finance_payment(interest_to_pay, RCT_EXPENDITURE_TYPE_INTEREST);
+    finance_payment(interest_to_pay, ExpenditureType::Interest);
 }
 
 /**
@@ -185,30 +158,27 @@ void finance_pay_interest()
  */
 void finance_pay_ride_upkeep()
 {
-    int32_t i;
-    Ride* ride;
-
-    FOR_ALL_RIDES (i, ride)
+    for (auto& ride : GetRideManager())
     {
-        if (!(ride->lifecycle_flags & RIDE_LIFECYCLE_EVER_BEEN_OPENED))
+        if (!(ride.lifecycle_flags & RIDE_LIFECYCLE_EVER_BEEN_OPENED))
         {
-            ride->Renew();
+            ride.Renew();
         }
 
-        if (ride->status != RIDE_STATUS_CLOSED && !(gParkFlags & PARK_FLAGS_NO_MONEY))
+        if (ride.status != RIDE_STATUS_CLOSED && !(gParkFlags & PARK_FLAGS_NO_MONEY))
         {
-            int16_t upkeep = ride->upkeep_cost;
+            int16_t upkeep = ride.upkeep_cost;
             if (upkeep != -1)
             {
-                ride->total_profit -= upkeep;
-                ride->window_invalidate_flags |= RIDE_INVALIDATE_RIDE_INCOME;
-                finance_payment(upkeep, RCT_EXPENDITURE_TYPE_RIDE_RUNNING_COSTS);
+                ride.total_profit -= upkeep;
+                ride.window_invalidate_flags |= RIDE_INVALIDATE_RIDE_INCOME;
+                finance_payment(upkeep, ExpenditureType::RideRunningCosts);
             }
         }
 
-        if (ride->last_crash_type != RIDE_CRASH_TYPE_NONE)
+        if (ride.last_crash_type != RIDE_CRASH_TYPE_NONE)
         {
-            ride->last_crash_type--;
+            ride.last_crash_type--;
         }
     }
 }
@@ -230,7 +200,7 @@ void finance_reset_history()
 void finance_init()
 {
     // It only initialises the first month
-    for (uint32_t i = 0; i < RCT_EXPENDITURE_TYPE_COUNT; i++)
+    for (uint32_t i = 0; i < static_cast<int32_t>(ExpenditureType::Count); i++)
     {
         gExpenditureTable[0][i] = 0;
     }
@@ -272,12 +242,9 @@ void finance_update_daily_profit()
     if (!(gParkFlags & PARK_FLAGS_NO_MONEY))
     {
         // Staff costs
-        uint16_t sprite_index;
-        Peep* peep;
-
-        FOR_ALL_STAFF (sprite_index, peep)
+        for (auto peep : EntityList<Staff>())
         {
-            current_profit -= wage_table[peep->staff_type];
+            current_profit -= GetStaffWage(peep->AssignedStaffType);
         }
 
         // Research costs
@@ -289,13 +256,11 @@ void finance_update_daily_profit()
         current_profit -= current_loan / 600;
 
         // Ride costs
-        Ride* ride;
-        int32_t i;
-        FOR_ALL_RIDES (i, ride)
+        for (auto& ride : GetRideManager())
         {
-            if (ride->status != RIDE_STATUS_CLOSED && ride->upkeep_cost != MONEY16_UNDEFINED)
+            if (ride.status != RIDE_STATUS_CLOSED && ride.upkeep_cost != MONEY16_UNDEFINED)
             {
-                current_profit -= 2 * ride->upkeep_cost;
+                current_profit -= 2 * ride.upkeep_cost;
             }
         }
     }
@@ -343,7 +308,7 @@ void finance_shift_expenditure_table()
     if (gDateMonthsElapsed >= EXPENDITURE_TABLE_MONTH_COUNT)
     {
         money32 sum = 0;
-        for (uint32_t i = 0; i < RCT_EXPENDITURE_TYPE_COUNT; i++)
+        for (uint32_t i = 0; i < static_cast<int32_t>(ExpenditureType::Count); i++)
         {
             sum += gExpenditureTable[EXPENDITURE_TABLE_MONTH_COUNT - 1][i];
         }
@@ -353,14 +318,14 @@ void finance_shift_expenditure_table()
     // Shift the table
     for (size_t i = EXPENDITURE_TABLE_MONTH_COUNT - 1; i >= 1; i--)
     {
-        for (size_t j = 0; j < RCT_EXPENDITURE_TYPE_COUNT; j++)
+        for (size_t j = 0; j < static_cast<int32_t>(ExpenditureType::Count); j++)
         {
             gExpenditureTable[i][j] = gExpenditureTable[i - 1][j];
         }
     }
 
     // Zero the beginning of the table, which is the new month
-    for (uint32_t i = 0; i < RCT_EXPENDITURE_TYPE_COUNT; i++)
+    for (uint32_t i = 0; i < static_cast<int32_t>(ExpenditureType::Count); i++)
     {
         gExpenditureTable[0][i] = 0;
     }
@@ -387,10 +352,10 @@ money32 finance_get_last_month_shop_profit()
     {
         money32* lastMonthExpenditure = gExpenditureTable[1];
 
-        profit += lastMonthExpenditure[RCT_EXPENDITURE_TYPE_SHOP_SHOP_SALES];
-        profit += lastMonthExpenditure[RCT_EXPENDITURE_TYPE_SHOP_STOCK];
-        profit += lastMonthExpenditure[RCT_EXPENDITURE_TYPE_FOODDRINK_SALES];
-        profit += lastMonthExpenditure[RCT_EXPENDITURE_TYPE_FOODDRINK_STOCK];
+        profit += lastMonthExpenditure[static_cast<int32_t>(ExpenditureType::ShopSales)];
+        profit += lastMonthExpenditure[static_cast<int32_t>(ExpenditureType::ShopStock)];
+        profit += lastMonthExpenditure[static_cast<int32_t>(ExpenditureType::FoodDrinkSales)];
+        profit += lastMonthExpenditure[static_cast<int32_t>(ExpenditureType::FoodDrinkStock)];
     }
     return profit;
 }

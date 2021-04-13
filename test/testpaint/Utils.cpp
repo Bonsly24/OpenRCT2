@@ -9,7 +9,10 @@
 
 #include "Utils.hpp"
 
+#include "Data.h"
+
 #include <openrct2/ride/Ride.h>
+#include <openrct2/ride/RideData.h>
 #include <openrct2/ride/Track.h>
 #include <openrct2/ride/TrackData.h>
 
@@ -18,20 +21,10 @@ namespace Utils
     int getTrackSequenceCount(uint8_t rideType, uint8_t trackType)
     {
         int sequenceCount = 0;
-        const rct_preview_track** trackBlocks;
-
-        if (ride_type_has_flag(rideType, RIDE_TYPE_FLAG_FLAT_RIDE))
-        {
-            trackBlocks = FlatRideTrackBlocks;
-        }
-        else
-        {
-            trackBlocks = TrackBlocks;
-        }
 
         for (int i = 0; i < 256; i++)
         {
-            if (trackBlocks[trackType][i].index == 0xFF)
+            if (TrackBlocks[trackType][i].index == 0xFF)
             {
                 break;
             }
@@ -44,14 +37,14 @@ namespace Utils
 
     bool rideSupportsTrackType(uint8_t rideType, uint8_t trackType)
     {
-        TRACK_PAINT_FUNCTION_GETTER newPaintGetter = RideTypeTrackPaintFunctions[rideType];
+        TRACK_PAINT_FUNCTION_GETTER newPaintGetter = GetRideTypeDescriptor(rideType).TrackPaintFunction;
 
         if (newPaintGetter == nullptr)
         {
             return false;
         }
 
-        if (newPaintGetter(trackType, 0) == nullptr)
+        if (newPaintGetter(trackType) == nullptr)
         {
             return false;
         }
@@ -66,7 +59,7 @@ namespace Utils
 
     bool rideIsImplemented(uint8_t rideType)
     {
-        TRACK_PAINT_FUNCTION_GETTER newPaintGetter = RideTypeTrackPaintFunctions[rideType];
+        TRACK_PAINT_FUNCTION_GETTER newPaintGetter = GetRideTypeDescriptor(rideType).TrackPaintFunction;
         return (newPaintGetter != 0);
     }
 } // namespace Utils

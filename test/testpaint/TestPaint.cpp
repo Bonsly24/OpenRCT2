@@ -27,8 +27,8 @@ namespace TestPaint
 {
     void ResetEnvironment()
     {
-        gPaintInteractionType = VIEWPORT_INTERACTION_ITEM_RIDE;
-        gPaintSession.InteractionType = VIEWPORT_INTERACTION_ITEM_RIDE;
+        gPaintInteractionType = EnumValue(ViewportInteractionItem::Ride);
+        gPaintSession.InteractionType = ViewportInteractionItem::Ride;
 
         gTrackColours[SCHEME_TRACK] = DEFAULT_SCHEME_TRACK;
         gTrackColours[SCHEME_SUPPORTS] = DEFAULT_SCHEME_SUPPORTS;
@@ -46,13 +46,11 @@ namespace TestPaint
         gPaintSession.DPI = dpi;
 
         {
-            Ride ride = {};
-            ride.entrance_style = 0;
             static rct_ride_entry rideEntry = {};
             rct_ride_entry_vehicle vehicleEntry{};
             vehicleEntry.base_image_id = 0x70000;
             rideEntry.vehicles[0] = vehicleEntry;
-            gRideList[0] = ride;
+            gRideList[0] = {};
             gRideEntries[0] = &rideEntry;
         }
         {

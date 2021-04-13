@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (c) 2014-2019 OpenRCT2 developers
+ * Copyright (c) 2014-2020 OpenRCT2 developers
  *
  * For a complete list of all authors, please refer to contributors.md
  * Interested in contributing? Visit https://github.com/OpenRCT2/OpenRCT2
@@ -17,26 +17,26 @@ struct Award
     uint16_t Type;
 };
 
-enum PARK_AWARD
+enum class ParkAward : uint8_t
 {
-    PARK_AWARD_MOST_UNTIDY,
-    PARK_AWARD_MOST_TIDY,
-    PARK_AWARD_BEST_ROLLERCOASTERS,
-    PARK_AWARD_BEST_VALUE,
-    PARK_AWARD_MOST_BEAUTIFUL,
-    PARK_AWARD_WORST_VALUE,
-    PARK_AWARD_SAFEST,
-    PARK_AWARD_BEST_STAFF,
-    PARK_AWARD_BEST_FOOD,
-    PARK_AWARD_WORST_FOOD,
-    PARK_AWARD_BEST_RESTROOMS,
-    PARK_AWARD_MOST_DISAPPOINTING,
-    PARK_AWARD_BEST_WATER_RIDES,
-    PARK_AWARD_BEST_CUSTOM_DESIGNED_RIDES,
-    PARK_AWARD_MOST_DAZZLING_RIDE_COLOURS,
-    PARK_AWARD_MOST_CONFUSING_LAYOUT,
-    PARK_AWARD_BEST_GENTLE_RIDES,
-    PARK_AWARD_COUNT
+    MostUntidy,
+    MostTidy,
+    BestRollerCoasters,
+    BestValue,
+    MostBeautiful,
+    WorstValue,
+    Safest,
+    BestStaff,
+    BestFood,
+    WorstFood,
+    BestRestrooms,
+    MostDisappointing,
+    BestWaterRides,
+    BestCustomDesignedRides,
+    MostDazzlingRideColours,
+    MostConfusingLayout,
+    BestGentleRides,
+    Count
 };
 
 #define MAX_AWARDS 4

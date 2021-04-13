@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (c) 2014-2019 OpenRCT2 developers
+ * Copyright (c) 2014-2020 OpenRCT2 developers
  *
  * For a complete list of all authors, please refer to contributors.md
  * Interested in contributing? Visit https://github.com/OpenRCT2/OpenRCT2
@@ -39,10 +39,10 @@ static void paint_lift_cage(paint_session* session, int8_t index, uint32_t colou
     uint32_t imageId;
 
     imageId = lift_cage_sprites[1 + index][0] | colourFlags;
-    sub_98197C(session, imageId, 0, 0, 2, 2, 30, height, 2, 2, height);
+    PaintAddImageAsParent(session, imageId, 0, 0, 2, 2, 30, height, 2, 2, height);
 
     imageId = lift_cage_sprites[1 + index][1] | colourFlags;
-    sub_98197C(session, imageId, 0, 0, 2, 2, 30, height, 28, 28, height);
+    PaintAddImageAsParent(session, imageId, 0, 0, 2, 2, 30, height, 28, 28, height);
 }
 
 /** rct2: 0x0076C6CC */
@@ -73,15 +73,17 @@ static void paint_lift_base(
     }
 
     int32_t edges = edges_3x3[trackSequence];
-    Ride* ride = get_ride(rideIndex);
-    LocationXY16 position = session->MapPosition;
 
     uint32_t imageId = SPR_FLOOR_METAL_B | session->TrackColours[SCHEME_SUPPORTS];
-    sub_98197C(session, imageId, 0, 0, 32, 32, 1, height, 0, 0, height);
+    PaintAddImageAsParent(session, imageId, 0, 0, 32, 32, 1, height, 0, 0, height);
 
-    track_paint_util_paint_fences(
-        session, edges, position, tileElement, ride, session->TrackColours[SCHEME_TRACK], height, fenceSpritesMetalB,
-        session->CurrentRotation);
+    auto ride = get_ride(rideIndex);
+    if (ride != nullptr)
+    {
+        track_paint_util_paint_fences(
+            session, edges, session->MapPosition, tileElement, ride, session->TrackColours[SCHEME_TRACK], height,
+            fenceSpritesMetalB, session->CurrentRotation);
+    }
 
     int32_t blockedSegments = 0;
     switch (trackSequence)
@@ -137,14 +139,14 @@ static void paint_lift_tower_section(
 /**
  * rct2: 0x0076C5BC
  */
-TRACK_PAINT_FUNCTION get_track_paint_function_lift(int32_t trackType, int32_t direction)
+TRACK_PAINT_FUNCTION get_track_paint_function_lift(int32_t trackType)
 {
     switch (trackType)
     {
-        case TRACK_ELEM_TOWER_BASE:
+        case TrackElemType::TowerBase:
             return paint_lift_base;
 
-        case TRACK_ELEM_TOWER_SECTION:
+        case TrackElemType::TowerSection:
             return paint_lift_tower_section;
     }
 

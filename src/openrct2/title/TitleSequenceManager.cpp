@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (c) 2014-2019 OpenRCT2 developers
+ * Copyright (c) 2014-2020 OpenRCT2 developers
  *
  * For a complete list of all authors, please refer to contributors.md
  * Interested in contributing? Visit https://github.com/OpenRCT2/OpenRCT2
@@ -9,7 +9,9 @@
 
 #include "TitleSequenceManager.h"
 
+#include "../Context.h"
 #include "../OpenRCT2.h"
+#include "../PlatformEnvironment.h"
 #include "../core/Collections.hpp"
 #include "../core/FileScanner.h"
 #include "../core/Memory.hpp"
@@ -32,7 +34,7 @@ namespace TitleSequenceManager
         rct_string_id StringId;
     };
 
-    const PredefinedSequence PredefinedSequences[] = {
+    static constexpr PredefinedSequence PredefinedSequences[] = {
         { "*RCT1", "rct1.parkseq", STR_TITLE_SEQUENCE_RCT1 },
         { "*RCT1AA", "rct1aa.parkseq", STR_TITLE_SEQUENCE_RCT1_AA },
         { "*RCT1AALL", "rct1aall.parkseq", STR_TITLE_SEQUENCE_RCT1_AA_LL },
@@ -43,13 +45,13 @@ namespace TitleSequenceManager
     static std::vector<TitleSequenceManagerItem> _items;
 
     static std::string GetNewTitleSequencePath(const std::string& name, bool isZip);
-    static size_t FindItemIndexByPath(const utf8* path);
-    static void Scan(const utf8* directory);
-    static void AddSequence(const utf8* scanPath);
+    static size_t FindItemIndexByPath(const std::string& path);
+    static void Scan(const std::string& directory);
+    static void AddSequence(const std::string& scanPath);
     static void SortSequences();
     static std::string GetNameFromSequencePath(const std::string& path);
-    static void GetDataSequencesPath(utf8* buffer, size_t bufferSize);
-    static void GetUserSequencesPath(utf8* buffer, size_t bufferSize);
+    static std::string GetDataSequencesPath();
+    static std::string GetUserSequencesPath();
     static bool IsNameReserved(const std::string& name);
 
     size_t GetCount()
@@ -66,10 +68,10 @@ namespace TitleSequenceManager
         return &_items[i];
     }
 
-    static size_t FindItemIndexByPath(const utf8* path)
+    static size_t FindItemIndexByPath(const std::string& path)
     {
         size_t index = Collections::IndexOf(
-            _items, [path](const TitleSequenceManagerItem& item) -> bool { return String::Equals(path, item.Path.c_str()); });
+            _items, [path](const TitleSequenceManagerItem& item) -> bool { return path == item.Path; });
         return index;
     }
 
@@ -95,23 +97,21 @@ namespace TitleSequenceManager
     size_t RenameItem(size_t i, const utf8* newName)
     {
         auto item = &_items[i];
-        const utf8* oldPath = item->Path.c_str();
+        const auto& oldPath = item->Path;
 
-        utf8 newPath[MAX_PATH];
-        Path::GetDirectory(newPath, sizeof(newPath), oldPath);
-        Path::Append(newPath, sizeof(newPath), newName);
+        auto newPath = Path::Combine(Path::GetDirectory(oldPath), newName);
         if (item->IsZip)
         {
-            String::Append(newPath, sizeof(newPath), TITLE_SEQUENCE_EXTENSION);
-            platform_file_move(oldPath, newPath);
+            newPath += TITLE_SEQUENCE_EXTENSION;
+            platform_file_move(oldPath.c_str(), newPath.c_str());
         }
         else
         {
-            platform_file_move(oldPath, newPath);
+            platform_file_move(oldPath.c_str(), newPath.c_str());
         }
 
-        item->Name = std::string(newName);
-        item->Path = std::string(newPath);
+        item->Name = newName;
+        item->Path = newPath;
 
         SortSequences();
         size_t index = FindItemIndexByPath(newPath);
@@ -121,57 +121,51 @@ namespace TitleSequenceManager
     size_t DuplicateItem(size_t i, const utf8* name)
     {
         auto item = &_items[i];
-        const utf8* srcPath = item->Path.c_str();
+        const auto& srcPath = item->Path;
 
         std::string dstPath = GetNewTitleSequencePath(std::string(name), item->IsZip);
-        if (!platform_file_copy(srcPath, dstPath.c_str(), true))
+        if (!platform_file_copy(srcPath.c_str(), dstPath.c_str(), true))
         {
             return SIZE_MAX;
         }
 
-        AddSequence(dstPath.c_str());
+        AddSequence(dstPath);
         SortSequences();
-        size_t index = FindItemIndexByPath(dstPath.c_str());
+        size_t index = FindItemIndexByPath(dstPath);
         return index;
     }
 
     size_t CreateItem(const utf8* name)
     {
-        std::string path = GetNewTitleSequencePath(std::string(name), true);
-        TitleSequence* seq = CreateTitleSequence();
-        seq->Name = String::Duplicate(name);
-        seq->Path = String::Duplicate(path.c_str());
+        auto seq = CreateTitleSequence();
+        seq->Name = name;
+        seq->Path = GetNewTitleSequencePath(seq->Name, true);
         seq->IsZip = true;
 
-        bool success = TitleSequenceSave(seq);
-        FreeTitleSequence(seq);
-
         size_t index = SIZE_MAX;
-        if (success)
+        if (TitleSequenceSave(*seq))
         {
-            AddSequence(path.c_str());
+            AddSequence(seq->Path);
             SortSequences();
-            index = FindItemIndexByPath(path.c_str());
+            index = FindItemIndexByPath(seq->Path);
         }
+
         return index;
     }
 
     static std::string GetNewTitleSequencePath(const std::string& name, bool isZip)
     {
-        utf8 path[MAX_PATH];
-        GetUserSequencesPath(path, sizeof(path));
-        platform_ensure_directory_exists(path);
-        Path::Append(path, sizeof(path), name.c_str());
+        auto path = Path::Combine(GetUserSequencesPath(), name);
         if (isZip)
         {
-            String::Append(path, sizeof(path), TITLE_SEQUENCE_EXTENSION);
+            path += TITLE_SEQUENCE_EXTENSION;
         }
-        return std::string(path);
+        return path;
     }
 
     static size_t GetPredefinedIndex(const std::string& path)
     {
-        const utf8* filename = Path::GetFileName(path.c_str());
+        auto filename = Path::GetFileName(path);
         for (size_t i = 0; i < std::size(PredefinedSequences); i++)
         {
             if (String::Equals(filename, PredefinedSequences[i].Filename, true))
@@ -201,59 +195,48 @@ namespace TitleSequenceManager
 
     void Scan()
     {
-        utf8 path[MAX_PATH];
-
         _items.clear();
 
         // Scan data path
-        GetDataSequencesPath(path, sizeof(path));
-        Scan(path);
+        Scan(GetDataSequencesPath());
 
         // Scan user path
-        GetUserSequencesPath(path, sizeof(path));
-        Scan(path);
+        Scan(GetUserSequencesPath());
 
         SortSequences();
     }
 
-    static void Scan(const utf8* directory)
+    static void Scan(const std::string& directory)
     {
-        utf8 pattern[MAX_PATH];
-        String::Set(pattern, sizeof(pattern), directory);
-        Path::Append(pattern, sizeof(pattern), "script.txt;*.parkseq");
-
+        auto pattern = Path::Combine(directory, "script.txt;*.parkseq");
         IFileScanner* fileScanner = Path::ScanDirectory(pattern, true);
         while (fileScanner->Next())
         {
-            const utf8* path = fileScanner->GetPath();
-            AddSequence(path);
+            AddSequence(fileScanner->GetPath());
         }
         delete fileScanner;
     }
 
-    static void AddSequence(const utf8* scanPath)
+    static void AddSequence(const std::string& scanPath)
     {
-        TitleSequenceManagerItem item;
+        TitleSequenceManagerItem item{};
 
-        std::string path;
-        bool isZip = true;
         if (String::Equals(Path::GetExtension(scanPath), ".txt", true))
         {
             // If we are given a .txt file, set the path to the containing directory
-            utf8* utf8Path = Path::GetDirectory(scanPath);
-            path = std::string(utf8Path);
-            Memory::Free(utf8Path);
-            isZip = false;
-            item.Name = Path::GetFileName(path.c_str());
+            item.Path = Path::GetDirectory(scanPath);
+            item.Name = Path::GetFileName(item.Path);
+            item.IsZip = false;
         }
         else
         {
-            path = std::string(scanPath);
-            item.Name = GetNameFromSequencePath(path);
+            item.Path = scanPath;
+            item.Name = GetNameFromSequencePath(item.Path);
+            item.IsZip = true;
         }
 
-        item.PredefinedIndex = GetPredefinedIndex(path);
-        item.Path = path;
+        item.PredefinedIndex = GetPredefinedIndex(item.Path);
+
         if (item.PredefinedIndex != PREDEFINED_INDEX_CUSTOM)
         {
             rct_string_id stringId = PredefinedSequences[item.PredefinedIndex].StringId;
@@ -265,37 +248,34 @@ namespace TitleSequenceManager
             // actual predefined names and also prevent editing
             return;
         }
-        item.IsZip = isZip;
-        _items.push_back(item);
+
+        _items.push_back(std::move(item));
     }
 
     static std::string GetNameFromSequencePath(const std::string& path)
     {
-        utf8* name = Path::GetFileNameWithoutExtension(path.c_str());
-        std::string result = std::string(name);
-        Memory::Free(name);
-        return result;
+        auto name = Path::GetFileNameWithoutExtension(path);
+        return name;
     }
 
-    static void GetDataSequencesPath(utf8* buffer, size_t bufferSize)
+    static std::string GetDataSequencesPath()
     {
-        platform_get_openrct_data_path(buffer, bufferSize);
-        Path::Append(buffer, bufferSize, "title");
+        auto env = OpenRCT2::GetContext()->GetPlatformEnvironment();
+        return env->GetDirectoryPath(OpenRCT2::DIRBASE::OPENRCT2, OpenRCT2::DIRID::SEQUENCE);
     }
 
-    static void GetUserSequencesPath(utf8* buffer, size_t bufferSize)
+    static std::string GetUserSequencesPath()
     {
-        platform_get_user_directory(buffer, "title sequences", bufferSize);
+        auto env = OpenRCT2::GetContext()->GetPlatformEnvironment();
+        return env->GetDirectoryPath(OpenRCT2::DIRBASE::USER, OpenRCT2::DIRID::SEQUENCE);
     }
 
     static bool IsNameReserved(const std::string& name)
     {
         for (const auto& pseq : TitleSequenceManager::PredefinedSequences)
         {
-            const utf8* predefinedName = Path::GetFileNameWithoutExtension(pseq.Filename);
-            std::string reservedName = std::string(predefinedName);
-            Memory::Free(predefinedName);
-            if (String::Equals(name, reservedName, true))
+            auto predefinedName = Path::GetFileNameWithoutExtension(std::string(pseq.Filename));
+            if (String::Equals(name, predefinedName, true))
             {
                 return true;
             }
@@ -316,8 +296,7 @@ const utf8* title_sequence_manager_get_name(size_t index)
     {
         return nullptr;
     }
-    const utf8* name = item->Name.c_str();
-    return name;
+    return item->Name.c_str();
 }
 
 const utf8* title_sequence_manager_get_path(size_t index)
@@ -327,8 +306,7 @@ const utf8* title_sequence_manager_get_path(size_t index)
     {
         return nullptr;
     }
-    const utf8* name = item->Path.c_str();
-    return name;
+    return item->Path.c_str();
 }
 
 const utf8* title_sequence_manager_get_config_id(size_t index)
@@ -338,8 +316,8 @@ const utf8* title_sequence_manager_get_config_id(size_t index)
     {
         return nullptr;
     }
-    const utf8* name = item->Name.c_str();
-    const utf8* filename = Path::GetFileName(item->Path.c_str());
+    const auto& name = item->Name;
+    auto filename = Path::GetFileName(name);
     for (const auto& pseq : TitleSequenceManager::PredefinedSequences)
     {
         if (String::Equals(filename, pseq.Filename, true))
@@ -347,7 +325,7 @@ const utf8* title_sequence_manager_get_config_id(size_t index)
             return pseq.ConfigId;
         }
     }
-    return name;
+    return name.c_str();
 }
 
 size_t title_sequence_manager_get_predefined_index(size_t index)

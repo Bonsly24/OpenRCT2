@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (c) 2014-2019 OpenRCT2 developers
+ * Copyright (c) 2014-2020 OpenRCT2 developers
  *
  * For a complete list of all authors, please refer to contributors.md
  * Interested in contributing? Visit https://github.com/OpenRCT2/OpenRCT2
@@ -13,6 +13,7 @@
 #include "../../paint/Supports.h"
 #include "../Track.h"
 #include "../TrackPaint.h"
+#include "../Vehicle.h"
 #include "../VehiclePaint.h"
 
 #include <cstring>
@@ -32,9 +33,15 @@ enum
  *  rct2: 0x006D5DA9
  */
 void vehicle_visual_roto_drop(
-    paint_session* session, int32_t x, int32_t imageDirection, int32_t y, int32_t z, const rct_vehicle* vehicle,
+    paint_session* session, int32_t x, int32_t imageDirection, int32_t y, int32_t z, const Vehicle* vehicle,
     const rct_ride_entry_vehicle* vehicleEntry)
 {
+    auto imageFlags = SPRITE_ID_PALETTE_COLOUR_2(vehicle->colours.body_colour, vehicle->colours.trim_colour);
+    if (vehicle->IsGhost())
+    {
+        imageFlags = CONSTRUCTION_MARKER;
+    }
+
     int32_t image_id;
     int32_t baseImage_id = (vehicleEntry->base_image_id + 4) + ((vehicle->animation_frame / 4) & 0x3);
     if (vehicle->restraints_position >= 64)
@@ -44,41 +51,44 @@ void vehicle_visual_roto_drop(
     }
 
     // Draw back:
-    image_id = baseImage_id | SPRITE_ID_PALETTE_COLOUR_2(vehicle->colours.body_colour, vehicle->colours.trim_colour);
-    sub_98197C(session, image_id, 0, 0, 2, 2, 41, z, -11, -11, z + 1);
+    image_id = baseImage_id | imageFlags;
+    PaintAddImageAsParent(session, image_id, 0, 0, 2, 2, 41, z, -11, -11, z + 1);
 
     // Draw front:
-    image_id = (baseImage_id + 4) | SPRITE_ID_PALETTE_COLOUR_2(vehicle->colours.body_colour, vehicle->colours.trim_colour);
-    sub_98197C(session, image_id, 0, 0, 16, 16, 41, z, -5, -5, z + 1);
+    image_id = (baseImage_id + 4) | imageFlags;
+    PaintAddImageAsParent(session, image_id, 0, 0, 16, 16, 41, z, -5, -5, z + 1);
 
-    uint8_t riding_peep_sprites[64];
-    std::fill_n(riding_peep_sprites, sizeof(riding_peep_sprites), 0xFF);
-    for (int32_t i = 0; i < vehicle->num_peeps; i++)
+    if (vehicle->num_peeps > 0 && !vehicle->IsGhost())
     {
-        uint8_t cl = (i & 3) * 16;
-        cl += (i & 0xFC);
-        cl += vehicle->animation_frame / 4;
-        cl += (imageDirection / 8) * 16;
-        cl &= 0x3F;
-        riding_peep_sprites[cl] = vehicle->peep_tshirt_colours[i];
-    }
-
-    // Draw riding peep sprites in back to front order:
-    for (int32_t j = 0; j <= 48; j++)
-    {
-        int32_t i = (j % 2) ? (48 - (j / 2)) : (j / 2);
-        if (riding_peep_sprites[i] != 0xFF)
+        uint8_t riding_peep_sprites[64];
+        std::fill_n(riding_peep_sprites, sizeof(riding_peep_sprites), 0xFF);
+        for (int32_t i = 0; i < vehicle->num_peeps; i++)
         {
-            baseImage_id = vehicleEntry->base_image_id + 20 + i;
-            if (vehicle->restraints_position >= 64)
-            {
-                baseImage_id += 64;
-                baseImage_id += vehicle->restraints_position / 64;
-            }
-            image_id = baseImage_id | SPRITE_ID_PALETTE_COLOUR_1(riding_peep_sprites[i]);
-            sub_98199C(session, image_id, 0, 0, 16, 16, 41, z, -5, -5, z + 1);
+            uint8_t cl = (i & 3) * 16;
+            cl += (i & 0xFC);
+            cl += vehicle->animation_frame / 4;
+            cl += (imageDirection / 8) * 16;
+            cl &= 0x3F;
+            riding_peep_sprites[cl] = vehicle->peep_tshirt_colours[i];
         }
-    };
+
+        // Draw riding peep sprites in back to front order:
+        for (int32_t j = 0; j <= 48; j++)
+        {
+            int32_t i = (j % 2) ? (48 - (j / 2)) : (j / 2);
+            if (riding_peep_sprites[i] != 0xFF)
+            {
+                baseImage_id = vehicleEntry->base_image_id + 20 + i;
+                if (vehicle->restraints_position >= 64)
+                {
+                    baseImage_id += 64;
+                    baseImage_id += vehicle->restraints_position / 64;
+                }
+                image_id = baseImage_id | SPRITE_ID_PALETTE_COLOUR_1(riding_peep_sprites[i]);
+                PaintAddImageAsChild(session, image_id, 0, 0, 16, 16, 41, z, -5, -5, z + 1);
+            }
+        }
+    }
 
     assert(vehicleEntry->effect_visual == 1);
     // Although called in original code, effect_visual (splash effects) are not used for many rides and does not make sense so
@@ -93,31 +103,33 @@ static void paint_roto_drop_base(
     trackSequence = track_map_3x3[direction][trackSequence];
 
     int32_t edges = edges_3x3[trackSequence];
-    Ride* ride = get_ride(rideIndex);
-    LocationXY16 position = session->MapPosition;
 
     wooden_a_supports_paint_setup(session, (direction & 1), 0, height, session->TrackColours[SCHEME_MISC], nullptr);
 
     uint32_t imageId = SPR_FLOOR_METAL_B | session->TrackColours[SCHEME_SUPPORTS];
-    sub_98197C(session, imageId, 0, 0, 32, 32, 1, height, 0, 0, height);
+    PaintAddImageAsParent(session, imageId, 0, 0, 32, 32, 1, height, 0, 0, height);
 
-    track_paint_util_paint_fences(
-        session, edges, position, tileElement, ride, session->TrackColours[SCHEME_TRACK], height, fenceSpritesMetalB,
-        session->CurrentRotation);
+    auto ride = get_ride(rideIndex);
+    if (ride != nullptr)
+    {
+        track_paint_util_paint_fences(
+            session, edges, session->MapPosition, tileElement, ride, session->TrackColours[SCHEME_TRACK], height,
+            fenceSpritesMetalB, session->CurrentRotation);
+    }
 
     if (trackSequence == 0)
     {
         imageId = (direction & 1 ? SPR_ROTO_DROP_TOWER_BASE_90_DEG : SPR_ROTO_DROP_TOWER_BASE)
             | session->TrackColours[SCHEME_TRACK];
-        sub_98197C(session, imageId, 0, 0, 2, 2, 27, height, 8, 8, height + 3);
+        PaintAddImageAsParent(session, imageId, 0, 0, 2, 2, 27, height, 8, 8, height + 3);
 
         imageId = (direction & 1 ? SPR_ROTO_DROP_TOWER_BASE_SEGMENT_90_DEG : SPR_ROTO_DROP_TOWER_BASE_SEGMENT)
             | session->TrackColours[SCHEME_TRACK];
-        sub_98197C(session, imageId, 0, 0, 2, 2, 30, height + 32, 8, 8, height + 32);
+        PaintAddImageAsParent(session, imageId, 0, 0, 2, 2, 30, height + 32, 8, 8, height + 32);
 
         imageId = (direction & 1 ? SPR_ROTO_DROP_TOWER_BASE_SEGMENT_90_DEG : SPR_ROTO_DROP_TOWER_BASE_SEGMENT)
             | session->TrackColours[SCHEME_TRACK];
-        sub_98197C(session, imageId, 0, 0, 2, 2, 30, height + 64, 8, 8, height + 64);
+        PaintAddImageAsParent(session, imageId, 0, 0, 2, 2, 30, height + 64, 8, 8, height + 64);
 
         paint_util_set_vertical_tunnel(session, height + 96);
         paint_util_set_segment_support_height(session, SEGMENTS_ALL, 0xFFFF, 0);
@@ -175,13 +187,13 @@ static void paint_roto_drop_tower_section(
     }
 
     uint32_t imageId = SPR_ROTO_DROP_TOWER_SEGMENT | session->TrackColours[SCHEME_TRACK];
-    sub_98197C(session, imageId, 0, 0, 2, 2, 30, height, 8, 8, height);
+    PaintAddImageAsParent(session, imageId, 0, 0, 2, 2, 30, height, 8, 8, height);
 
     const TileElement* nextTileElement = tileElement + 1;
-    if (tileElement->IsLastForTile() || tileElement->clearance_height != nextTileElement->base_height)
+    if (tileElement->IsLastForTile() || tileElement->GetClearanceZ() != nextTileElement->GetBaseZ())
     {
         imageId = SPR_ROTO_DROP_TOWER_SEGMENT_TOP | session->TrackColours[SCHEME_TRACK];
-        sub_98199C(session, imageId, 0, 0, 2, 2, 30, height, 8, 8, height);
+        PaintAddImageAsChild(session, imageId, 0, 0, 2, 2, 30, height, 8, 8, height);
     }
 
     paint_util_set_segment_support_height(session, SEGMENTS_ALL, 0xFFFF, 0);
@@ -193,14 +205,14 @@ static void paint_roto_drop_tower_section(
 /**
  * rct2: 0x00886074
  */
-TRACK_PAINT_FUNCTION get_track_paint_function_roto_drop(int32_t trackType, int32_t direction)
+TRACK_PAINT_FUNCTION get_track_paint_function_roto_drop(int32_t trackType)
 {
     switch (trackType)
     {
-        case TRACK_ELEM_TOWER_BASE:
+        case TrackElemType::TowerBase:
             return paint_roto_drop_base;
 
-        case TRACK_ELEM_TOWER_SECTION:
+        case TrackElemType::TowerSection:
             return paint_roto_drop_tower_section;
     }
 

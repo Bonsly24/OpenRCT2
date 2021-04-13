@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (c) 2014-2019 OpenRCT2 developers
+ * Copyright (c) 2014-2020 OpenRCT2 developers
  *
  * For a complete list of all authors, please refer to contributors.md
  * Interested in contributing? Visit https://github.com/OpenRCT2/OpenRCT2
@@ -37,10 +37,10 @@ namespace Collections
     }
 
     template<typename TCollection, typename TItem, typename TComparer>
-    static size_t IndexOf(TCollection& collection, TItem needle, TComparer comparer)
+    static size_t IndexOf(const TCollection& collection, TItem needle, TComparer comparer)
     {
         size_t index = 0;
-        for (TItem item : collection)
+        for (const auto& item : collection)
         {
             if (comparer(item, needle))
             {
@@ -51,10 +51,10 @@ namespace Collections
         return SIZE_MAX;
     }
 
-    template<typename TCollection, typename TPred> static size_t IndexOf(TCollection& collection, TPred predicate)
+    template<typename TCollection, typename TPred> static size_t IndexOf(const TCollection& collection, TPred predicate)
     {
         size_t index = 0;
-        for (auto item : collection)
+        for (const auto& item : collection)
         {
             if (predicate(item))
             {

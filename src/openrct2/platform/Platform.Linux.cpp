@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (c) 2014-2019 OpenRCT2 developers
+ * Copyright (c) 2014-2020 OpenRCT2 developers
  *
  * For a complete list of all authors, please refer to contributors.md
  * Interested in contributing? Visit https://github.com/OpenRCT2/OpenRCT2
@@ -7,16 +7,16 @@
  * OpenRCT2 is licensed under the GNU General Public License version 3.
  *****************************************************************************/
 
-#if defined(__FreeBSD__) || defined(__OpenBSD__) || (defined(__linux__) && !defined(__ANDROID__))
+#if defined(__unix__) && !defined(__ANDROID__) && !defined(__APPLE__)
 
 #    include <limits.h>
 #    include <pwd.h>
 #    include <vector>
-#    if defined(__FreeBSD__)
+#    if defined(__FreeBSD__) || defined(__NetBSD__)
 #        include <stddef.h>
 #        include <sys/param.h>
 #        include <sys/sysctl.h>
-#    endif // __FreeBSD__
+#    endif // __FreeBSD__ || __NetBSD__
 #    if defined(__linux__)
 // for PATH_MAX
 #        include <linux/limits.h>
@@ -81,7 +81,7 @@ namespace Platform
     std::string GetInstallPath()
     {
         // 1. Try command line argument
-        auto path = std::string(gCustomOpenrctDataPath);
+        auto path = std::string(gCustomOpenRCT2DataPath);
         if (!path.empty())
         {
             return Path::GetAbsolute(path);
@@ -90,8 +90,7 @@ namespace Platform
         // exeDir should come first to allow installing into build dir
         std::vector<std::string> prefixes;
         auto exePath = Platform::GetCurrentExecutablePath();
-        auto exeDirectory = Path::GetDirectory(exePath);
-        prefixes.push_back(exeDirectory);
+        prefixes.push_back(Path::GetDirectory(exePath));
         prefixes.push_back(GetCurrentWorkingDirectory());
         prefixes.push_back("/");
         static const char* SearchLocations[] = {
@@ -105,7 +104,7 @@ namespace Platform
             "/var/lib/openrct2",
             "/usr/share/openrct2",
         };
-        for (auto prefix : prefixes)
+        for (const auto& prefix : prefixes)
         {
             for (auto searchLocation : SearchLocations)
             {
@@ -129,8 +128,12 @@ namespace Platform
         {
             log_fatal("failed to read /proc/self/exe");
         }
-#    elif defined(__FreeBSD__)
+#    elif defined(__FreeBSD__) || defined(__NetBSD__)
+#        if defined(__FreeBSD__)
         const int32_t mib[] = { CTL_KERN, KERN_PROC, KERN_PROC_PATHNAME, -1 };
+#        else
+        const int32_t mib[] = { CTL_KERN, KERN_PROC_ARGS, -1, KERN_PROC_PATHNAME };
+#        endif
         auto exeLen = sizeof(exePath);
         if (sysctl(mib, 4, exePath, &exeLen, nullptr, 0) == -1)
         {
@@ -144,6 +147,16 @@ namespace Platform
 #        error "Platform does not support full path exe retrieval"
 #    endif
         return exePath;
+    }
+
+    utf8* StrDecompToPrecomp(utf8* input)
+    {
+        return input;
+    }
+
+    bool HandleSpecialCommandLineArgument(const char* argument)
+    {
+        return false;
     }
 } // namespace Platform
 

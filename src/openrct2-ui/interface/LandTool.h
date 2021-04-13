@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (c) 2014-2019 OpenRCT2 developers
+ * Copyright (c) 2014-2020 OpenRCT2 developers
  *
  * For a complete list of all authors, please refer to contributors.md
  * Interested in contributing? Visit https://github.com/OpenRCT2/OpenRCT2
@@ -21,11 +21,14 @@
 extern uint16_t gLandToolSize;
 extern money32 gLandToolRaiseCost;
 extern money32 gLandToolLowerCost;
-extern uint8_t gLandToolTerrainSurface;
-extern uint8_t gLandToolTerrainEdge;
+extern ObjectEntryIndex gLandToolTerrainSurface;
+extern ObjectEntryIndex gLandToolTerrainEdge;
 extern money32 gWaterToolRaiseCost;
 extern money32 gWaterToolLowerCost;
 
-uint32_t land_tool_size_to_sprite_index(uint16_t size);
-void land_tool_show_surface_style_dropdown(rct_window* w, rct_widget* widget, uint8_t currentSurfaceType);
-void land_tool_show_edge_style_dropdown(rct_window* w, rct_widget* widget, uint8_t currentEdgeType);
+namespace LandTool
+{
+    uint32_t SizeToSpriteIndex(uint16_t size);
+    void ShowSurfaceStyleDropdown(rct_window* w, rct_widget* widget, ObjectEntryIndex currentSurfaceType);
+    void ShowEdgeStyleDropdown(rct_window* w, rct_widget* widget, ObjectEntryIndex currentEdgeType);
+} // namespace LandTool

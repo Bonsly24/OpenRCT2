@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (c) 2014-2019 OpenRCT2 developers
+ * Copyright (c) 2014-2020 OpenRCT2 developers
  *
  * For a complete list of all authors, please refer to contributors.md
  * Interested in contributing? Visit https://github.com/OpenRCT2/OpenRCT2
@@ -10,6 +10,7 @@
 #pragma once
 
 #include "../common.h"
+#include "../core/IStream.hpp"
 
 #include <memory>
 #include <string>
@@ -17,14 +18,14 @@
 
 namespace OpenRCT2::Audio
 {
-    interface IAudioChannel;
-    interface IAudioMixer;
-    interface IAudioSource;
+    struct IAudioChannel;
+    struct IAudioMixer;
+    struct IAudioSource;
 
     /**
      * Audio services for playing music and sound effects.
      */
-    interface IAudioContext
+    struct IAudioContext
     {
         virtual ~IAudioContext() = default;
 
@@ -34,6 +35,7 @@ namespace OpenRCT2::Audio
         virtual void SetOutputDevice(const std::string& deviceName) abstract;
 
         virtual IAudioSource* CreateStreamFromWAV(const std::string& path) abstract;
+        virtual IAudioSource* CreateStreamFromWAV(std::unique_ptr<IStream> stream) abstract;
 
         virtual void StartTitleMusic() abstract;
 
@@ -47,7 +49,7 @@ namespace OpenRCT2::Audio
 
         virtual void StopAll() abstract;
         virtual void StopCrowdSound() abstract;
-        virtual void StopRainSound() abstract;
+        virtual void StopWeatherSound() abstract;
         virtual void StopRideMusic() abstract;
         virtual void StopTitleMusic() abstract;
         virtual void StopVehicleSounds() abstract;

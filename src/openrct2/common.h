@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (c) 2014-2019 OpenRCT2 developers
+ * Copyright (c) 2014-2020 OpenRCT2 developers
  *
  * For a complete list of all authors, please refer to contributors.md
  * Interested in contributing? Visit https://github.com/OpenRCT2/OpenRCT2
@@ -25,16 +25,13 @@
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
+#include <stdexcept>
 
 using namespace Numerics;
 
 using utf8 = char;
 using utf8string = utf8*;
 using const_utf8string = const utf8*;
-#ifdef _WIN32
-using utf16 = wchar_t;
-using utf16string = utf16*;
-#endif
 
 // Define MAX_PATH for various headers that don't want to include system headers
 // just for MAX_PATH
@@ -54,32 +51,50 @@ const constexpr auto ror32 = ror<uint32_t>;
 const constexpr auto rol64 = rol<uint64_t>;
 const constexpr auto ror64 = ror<uint64_t>;
 
-// Rounds an integer down to the given power of 2. y must be a power of 2.
-#define floor2(x, y) ((x) & (~((y)-1)))
+namespace
+{
+    [[maybe_unused]] constexpr bool is_power_of_2(int v)
+    {
+        return v && ((v & (v - 1)) == 0);
+    }
 
-// Rounds an integer up to the given power of 2. y must be a power of 2.
-#define ceil2(x, y) (((x) + (y)-1) & (~((y)-1)))
+    // Rounds an integer down to the given power of 2. y must be a power of 2.
+    [[maybe_unused]] constexpr int floor2(const int x, const int y)
+    {
+        if (!is_power_of_2(y))
+            throw std::logic_error("floor2 should only operate on power of 2");
+        return x & ~(y - 1);
+    }
+
+    // Rounds an integer up to the given power of 2. y must be a power of 2.
+    [[maybe_unused]] constexpr int ceil2(const int x, const int y)
+    {
+        if (!is_power_of_2(y))
+            throw std::logic_error("ceil2 should only operate on power of 2");
+        return (x + y - 1) & ~(y - 1);
+    }
+} // namespace
 
 // Gets the name of a symbol as a C string
 #define nameof(symbol) #symbol
 
 #if defined(__unix__) || (defined(__APPLE__) && defined(__MACH__))
 #    include <unistd.h>
-#    define STUB() log_warning("Function %s at %s:%d is a stub.\n", __PRETTY_FUNCTION__, __FILE__, __LINE__)
+#    define STUB() log_warning("Function %s at %s:%d is a stub.", __PRETTY_FUNCTION__, __FILE__, __LINE__)
 #    define _strcmpi _stricmp
 #    define _stricmp(x, y) strcasecmp((x), (y))
 #    define _strnicmp(x, y, n) strncasecmp((x), (y), (n))
 #    define _strdup(x) strdup((x))
 
 #    if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
-#        define RCT2_ENDIANESS __ORDER_LITTLE_ENDIAN__
-#        define LOBYTE(w) ((uint8_t)(w))
-#        define HIBYTE(w) ((uint8_t)(((uint16_t)(w) >> 8) & 0xFF))
+#        define RCT2_ENDIANNESS __ORDER_LITTLE_ENDIAN__
+#        define LOBYTE(w) (static_cast<uint8_t>(w))
+#        define HIBYTE(w) (static_cast<uint8_t>((static_cast<uint16_t>(w) >> 8) & 0xFF))
 #    endif // __BYTE_ORDER__
 
-#    ifndef RCT2_ENDIANESS
-#        error Unknown endianess!
-#    endif // RCT2_ENDIANESS
+#    ifndef RCT2_ENDIANNESS
+#        error Unknown endianness!
+#    endif // RCT2_ENDIANNESS
 
 #endif // defined(__unix__) || (defined(__APPLE__) && defined(__MACH__))
 
@@ -97,7 +112,7 @@ char* strndup(const char* src, size_t size);
 // Time (represented as number of 100-nanosecond intervals since 0001-01-01T00:00:00Z)
 using datetime64 = uint64_t;
 
-#define DATETIME64_MIN ((datetime64)0)
+constexpr const datetime64 DATETIME64_MIN = 0;
 
 // Represent fixed point numbers. dp = decimal point
 using fixed8_1dp = uint8_t;
@@ -124,13 +139,13 @@ using money64 = fixed64_1dp;
 #define MONEY(whole, fraction) ((whole)*10 + ((fraction) / 10))
 
 #define MONEY_FREE MONEY(0, 00)
-#define MONEY16_UNDEFINED (money16)(uint16_t) 0xFFFF
-#define MONEY32_UNDEFINED ((money32)0x80000000)
-
-using BannerIndex = uint8_t;
+#define MONEY16_UNDEFINED static_cast<money16>(static_cast<uint16_t>(0xFFFF))
+#define MONEY32_UNDEFINED (static_cast<money32>(0x80000000))
 
 using EMPTY_ARGS_VOID_POINTER = void();
 using rct_string_id = uint16_t;
+
+constexpr uint16_t SPRITE_INDEX_NULL = 0xFFFF;
 
 #define SafeFree(x)                                                                                                            \
     do                                                                                                                         \
@@ -152,9 +167,6 @@ using rct_string_id = uint16_t;
         (x) = nullptr;                                                                                                         \
     } while (false)
 
-#ifndef interface
-#    define interface struct
-#endif
 #define abstract = 0
 
 #if defined(__GNUC__) && (defined(__x86_64__) || defined(__i386__))
@@ -199,70 +211,5 @@ using rct_string_id = uint16_t;
 #else      // PLATFORM_X86
 #    define FASTCALL
 #endif // PLATFORM_X86
-
-/**
- * x86 register structure, only used for easy interop to RCT2 code.
- */
-#pragma pack(push, 1)
-struct registers
-{
-    union
-    {
-        int32_t eax;
-        int16_t ax;
-        struct
-        {
-            char al;
-            char ah;
-        };
-    };
-    union
-    {
-        int32_t ebx;
-        int16_t bx;
-        struct
-        {
-            char bl;
-            char bh;
-        };
-    };
-    union
-    {
-        int32_t ecx;
-        int16_t cx;
-        struct
-        {
-            char cl;
-            char ch;
-        };
-    };
-    union
-    {
-        int32_t edx;
-        int16_t dx;
-        struct
-        {
-            char dl;
-            char dh;
-        };
-    };
-    union
-    {
-        int32_t esi;
-        int16_t si;
-    };
-    union
-    {
-        int32_t edi;
-        int16_t di;
-    };
-    union
-    {
-        int32_t ebp;
-        int16_t bp;
-    };
-};
-assert_struct_size(registers, 7 * 4);
-#pragma pack(pop)
 
 #endif

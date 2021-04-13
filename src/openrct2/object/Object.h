@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (c) 2014-2019 OpenRCT2 developers
+ * Copyright (c) 2014-2020 OpenRCT2 developers
  *
  * For a complete list of all authors, please refer to contributors.md
  * Interested in contributing? Visit https://github.com/OpenRCT2/OpenRCT2
@@ -10,33 +10,44 @@
 #pragma once
 
 #include "../common.h"
+#include "../core/JsonFwd.hpp"
+#include "../util/Util.h"
 #include "ImageTable.h"
 #include "StringTable.h"
 
+#include <memory>
+#include <optional>
 #include <string_view>
 #include <vector>
 
-// First 0xF of rct_object_entry->flags
-enum OBJECT_TYPE
-{
-    OBJECT_TYPE_RIDE,
-    OBJECT_TYPE_SMALL_SCENERY,
-    OBJECT_TYPE_LARGE_SCENERY,
-    OBJECT_TYPE_WALLS,
-    OBJECT_TYPE_BANNERS,
-    OBJECT_TYPE_PATHS,
-    OBJECT_TYPE_PATH_BITS,
-    OBJECT_TYPE_SCENERY_GROUP,
-    OBJECT_TYPE_PARK_ENTRANCE,
-    OBJECT_TYPE_WATER,
-    OBJECT_TYPE_SCENARIO_TEXT,
-    OBJECT_TYPE_TERRAIN_SURFACE,
-    OBJECT_TYPE_TERRAIN_EDGE,
-    OBJECT_TYPE_STATION,
-    OBJECT_TYPE_MUSIC,
+using ObjectEntryIndex = uint16_t;
+constexpr const ObjectEntryIndex OBJECT_ENTRY_INDEX_NULL = std::numeric_limits<ObjectEntryIndex>::max();
+struct ObjectRepositoryItem;
 
-    OBJECT_TYPE_COUNT
+// First 0xF of rct_object_entry->flags
+enum class ObjectType : uint8_t
+{
+    Ride,
+    SmallScenery,
+    LargeScenery,
+    Walls,
+    Banners,
+    Paths,
+    PathBits,
+    SceneryGroup,
+    ParkEntrance,
+    Water,
+    ScenarioText,
+    TerrainSurface,
+    TerrainEdge,
+    Station,
+    Music,
+
+    Count,
+    None = 255
 };
+
+ObjectType& operator++(ObjectType& d, int);
 
 enum OBJECT_SELECTION_FLAGS
 {
@@ -53,19 +64,17 @@ enum OBJECT_SELECTION_FLAGS
 
 #define OBJECT_SELECTION_NOT_SELECTED_OR_REQUIRED 0
 
-enum OBJECT_SOURCE_GAME
+enum class ObjectSourceGame : uint8_t
 {
-    OBJECT_SOURCE_CUSTOM,
-    OBJECT_SOURCE_WACKY_WORLDS,
-    OBJECT_SOURCE_TIME_TWISTER,
-    OBJECT_SOURCE_OPENRCT2_OFFICIAL,
-    OBJECT_SOURCE_RCT1,
-    OBJECT_SOURCE_ADDED_ATTRACTIONS,
-    OBJECT_SOURCE_LOOPY_LANDSCAPES,
-    OBJECT_SOURCE_RCT2 = 8
+    Custom,
+    WackyWorlds,
+    TimeTwister,
+    OpenRCT2Official,
+    RCT1,
+    AddedAttractions,
+    LoopyLandscapes,
+    RCT2 = 8
 };
-
-#define OBJECT_ENTRY_COUNT 721
 
 #pragma pack(push, 1)
 /**
@@ -89,18 +98,29 @@ struct rct_object_entry
         };
     };
 
-    void SetName(const char* value)
+    std::string_view GetName() const
     {
-        auto src = value;
-        for (size_t i = 0; i < sizeof(name); i++)
-        {
-            auto dc = ' ';
-            if (*src != '\0')
-            {
-                dc = *src++;
-            }
-            name[i] = dc;
-        }
+        return std::string_view(name, std::size(name));
+    }
+
+    void SetName(std::string_view value);
+
+    ObjectType GetType() const
+    {
+        return static_cast<ObjectType>(flags & 0x0F);
+    }
+
+    void SetType(ObjectType newType)
+    {
+        flags &= ~0x0F;
+        flags |= (static_cast<uint8_t>(newType) & 0x0F);
+    }
+
+    std::optional<uint8_t> GetSceneryType() const;
+
+    ObjectSourceGame GetSourceGame() const
+    {
+        return static_cast<ObjectSourceGame>((flags & 0xF0) >> 4);
     }
 };
 assert_struct_size(rct_object_entry, 0x10);
@@ -131,22 +151,94 @@ struct rct_object_filters
 assert_struct_size(rct_object_filters, 3);
 #pragma pack(pop)
 
-interface IObjectRepository;
-interface IStream;
+enum class ObjectGeneration : uint8_t
+{
+    DAT,
+    JSON,
+};
+
+struct ObjectEntryDescriptor
+{
+    ObjectGeneration Generation;
+    std::string Identifier; // For JSON objects
+    rct_object_entry Entry; // For DAT objects
+
+    ObjectEntryDescriptor()
+        : Generation(ObjectGeneration::JSON)
+        , Identifier()
+        , Entry()
+    {
+    }
+
+    explicit ObjectEntryDescriptor(const rct_object_entry& newEntry)
+    {
+        Generation = ObjectGeneration::DAT;
+        Entry = newEntry;
+    }
+
+    explicit ObjectEntryDescriptor(std::string_view newIdentifier)
+    {
+        Generation = ObjectGeneration::JSON;
+        Identifier = std::string(newIdentifier);
+    }
+
+    explicit ObjectEntryDescriptor(const ObjectRepositoryItem& ori);
+};
+
+struct IObjectRepository;
+namespace OpenRCT2
+{
+    struct IStream;
+}
 struct ObjectRepositoryItem;
 struct rct_drawpixelinfo;
-struct json_t;
 
-interface IReadObjectContext
+enum class ObjectError : uint32_t
+{
+    Ok,
+    Unknown,
+    BadEncoding,
+    InvalidProperty,
+    BadStringTable,
+    BadImageTable,
+    UnexpectedEOF,
+};
+
+class ObjectAsset
+{
+private:
+    std::string _zipPath;
+    std::string _path;
+
+public:
+    ObjectAsset() = default;
+    ObjectAsset(std::string_view path)
+        : _path(path)
+    {
+    }
+    ObjectAsset(std::string_view zipPath, std::string_view path)
+        : _zipPath(zipPath)
+        , _path(path)
+    {
+    }
+
+    bool IsAvailable() const;
+    size_t GetSize() const;
+    std::unique_ptr<OpenRCT2::IStream> GetStream() const;
+};
+
+struct IReadObjectContext
 {
     virtual ~IReadObjectContext() = default;
 
+    virtual std::string_view GetObjectIdentifier() abstract;
     virtual IObjectRepository& GetObjectRepository() abstract;
     virtual bool ShouldLoadImages() abstract;
-    virtual std::vector<uint8_t> GetData(const std::string_view& path) abstract;
+    virtual std::vector<uint8_t> GetData(std::string_view path) abstract;
+    virtual ObjectAsset GetAsset(std::string_view path) abstract;
 
-    virtual void LogWarning(uint32_t code, const utf8* text) abstract;
-    virtual void LogError(uint32_t code, const utf8* text) abstract;
+    virtual void LogWarning(ObjectError code, const utf8* text) abstract;
+    virtual void LogError(ObjectError code, const utf8* text) abstract;
 };
 
 #ifdef __WARN_SUGGEST_FINAL_TYPES__
@@ -157,11 +249,13 @@ interface IReadObjectContext
 class Object
 {
 private:
-    char* _identifier;
+    std::string _identifier;
     rct_object_entry _objectEntry{};
     StringTable _stringTable;
     ImageTable _imageTable;
-    std::vector<uint8_t> _sourceGames;
+    std::vector<ObjectSourceGame> _sourceGames;
+    std::vector<std::string> _authors;
+    bool _isJsonObject{};
 
 protected:
     StringTable& GetStringTable()
@@ -177,20 +271,47 @@ protected:
         return _imageTable;
     }
 
-    std::string GetOverrideString(uint8_t index) const;
-    std::string GetString(uint8_t index) const;
-    std::string GetString(int32_t language, uint8_t index) const;
+    /**
+     * Populates the image and string tables from a JSON object
+     * @param context
+     * @param root JSON node of type object containing image and string info
+     * @note root is deliberately left non-const: json_t behaviour changes when const
+     */
+    void PopulateTablesFromJson(IReadObjectContext* context, json_t& root);
 
-    bool IsOpenRCT2OfficialObject();
+    static rct_object_entry ParseObjectEntry(const std::string& s);
+
+    std::string GetOverrideString(uint8_t index) const;
+    std::string GetString(ObjectStringID index) const;
+    std::string GetString(int32_t language, ObjectStringID index) const;
 
 public:
     explicit Object(const rct_object_entry& entry);
-    virtual ~Object();
+    virtual ~Object() = default;
 
-    // Legacy data structures
-    const char* GetIdentifier() const
+    std::string_view GetIdentifier() const
     {
         return _identifier;
+    }
+    void SetIdentifier(std::string_view identifier)
+    {
+        _identifier = identifier;
+    }
+
+    void MarkAsJsonObject()
+    {
+        _isJsonObject = true;
+    }
+
+    bool IsJsonObject() const
+    {
+        return _isJsonObject;
+    };
+
+    // Legacy data structures
+    std::string_view GetLegacyIdentifier() const
+    {
+        return _objectEntry.GetName();
     }
     const rct_object_entry* GetObjectEntry() const
     {
@@ -198,10 +319,13 @@ public:
     }
     virtual void* GetLegacyData();
 
-    virtual void ReadJson(IReadObjectContext* /*context*/, const json_t* /*root*/)
+    /**
+     * @note root is deliberately left non-const: json_t behaviour changes when const
+     */
+    virtual void ReadJson(IReadObjectContext* /*context*/, json_t& /*root*/)
     {
     }
-    virtual void ReadLegacy(IReadObjectContext* context, IStream* stream);
+    virtual void ReadLegacy(IReadObjectContext* context, OpenRCT2::IStream* stream);
     virtual void Load() abstract;
     virtual void Unload() abstract;
 
@@ -209,9 +333,9 @@ public:
     {
     }
 
-    virtual uint8_t GetObjectType() const final
+    virtual ObjectType GetObjectType() const final
     {
-        return _objectEntry.flags & 0x0F;
+        return _objectEntry.GetType();
     }
     virtual std::string GetName() const;
     virtual std::string GetName(int32_t language) const;
@@ -219,32 +343,29 @@ public:
     virtual void SetRepositoryItem(ObjectRepositoryItem* /*item*/) const
     {
     }
-    std::vector<uint8_t> GetSourceGames();
-    void SetSourceGames(const std::vector<uint8_t>& sourceGames);
+    std::vector<ObjectSourceGame> GetSourceGames();
+    void SetSourceGames(const std::vector<ObjectSourceGame>& sourceGames);
+
+    const std::vector<std::string>& GetAuthors() const;
+    void SetAuthors(std::vector<std::string>&& authors);
 
     const ImageTable& GetImageTable() const
     {
         return _imageTable;
     }
 
-    rct_object_entry GetScgWallsHeader();
-    rct_object_entry GetScgPathXHeader();
+    ObjectEntryDescriptor GetScgWallsHeader() const;
+    ObjectEntryDescriptor GetScgPathXHeader() const;
     rct_object_entry CreateHeader(const char name[9], uint32_t flags, uint32_t checksum);
+
+    uint32_t GetNumImages() const
+    {
+        return GetImageTable().GetCount();
+    }
 };
 #ifdef __WARN_SUGGEST_FINAL_TYPES__
 #    pragma GCC diagnostic pop
 #endif
-
-enum OBJECT_ERROR : uint32_t
-{
-    OBJECT_ERROR_OK,
-    OBJECT_ERROR_UNKNOWN,
-    OBJECT_ERROR_BAD_ENCODING,
-    OBJECT_ERROR_INVALID_PROPERTY,
-    OBJECT_ERROR_BAD_STRING_TABLE,
-    OBJECT_ERROR_BAD_IMAGE_TABLE,
-    OBJECT_ERROR_UNEXPECTED_EOF,
-};
 
 extern int32_t object_entry_group_counts[];
 extern int32_t object_entry_group_encoding[];
@@ -252,12 +373,12 @@ extern int32_t object_entry_group_encoding[];
 bool object_entry_is_empty(const rct_object_entry* entry);
 bool object_entry_compare(const rct_object_entry* a, const rct_object_entry* b);
 int32_t object_calculate_checksum(const rct_object_entry* entry, const void* data, size_t dataLength);
-bool find_object_in_entry_group(const rct_object_entry* entry, uint8_t* entry_type, uint8_t* entry_index);
+bool find_object_in_entry_group(const rct_object_entry* entry, ObjectType* entry_type, ObjectEntryIndex* entryIndex);
 void object_create_identifier_name(char* string_buffer, size_t size, const rct_object_entry* object);
 
 const rct_object_entry* object_list_find(rct_object_entry* entry);
 
 void object_entry_get_name_fixed(utf8* buffer, size_t bufferSize, const rct_object_entry* entry);
 
-void* object_entry_get_chunk(int32_t objectType, size_t index);
-const rct_object_entry* object_entry_get_entry(int32_t objectType, size_t index);
+void* object_entry_get_chunk(ObjectType objectType, ObjectEntryIndex index);
+const Object* object_entry_get_object(ObjectType objectType, ObjectEntryIndex index);

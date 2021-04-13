@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (c) 2014-2019 OpenRCT2 developers
+ * Copyright (c) 2014-2020 OpenRCT2 developers
  *
  * For a complete list of all authors, please refer to contributors.md
  * Interested in contributing? Visit https://github.com/OpenRCT2/OpenRCT2
@@ -33,19 +33,24 @@ enum
 static void paint_motionsimulator_vehicle(
     paint_session* session, int8_t offsetX, int8_t offsetY, uint8_t direction, int32_t height, const TileElement* tileElement)
 {
-    Ride* ride = get_ride(tileElement->AsTrack()->GetRideIndex());
-    rct_ride_entry* rideEntry = ride->GetRideEntry();
+    auto ride = get_ride(tileElement->AsTrack()->GetRideIndex());
+    if (ride == nullptr)
+        return;
+
+    auto rideEntry = ride->GetRideEntry();
+    if (rideEntry == nullptr)
+        return;
 
     const TileElement* savedTileElement = static_cast<const TileElement*>(session->CurrentlyDrawnItem);
 
-    rct_vehicle* vehicle = nullptr;
+    Vehicle* vehicle = nullptr;
     if (ride->lifecycle_flags & RIDE_LIFECYCLE_ON_TRACK)
     {
         uint16_t spriteIndex = ride->vehicles[0];
         if (spriteIndex != SPRITE_INDEX_NULL)
         {
-            vehicle = GET_VEHICLE(spriteIndex);
-            session->InteractionType = VIEWPORT_INTERACTION_ITEM_SPRITE;
+            vehicle = GetEntity<Vehicle>(spriteIndex);
+            session->InteractionType = ViewportInteractionItem::Entity;
             session->CurrentlyDrawnItem = vehicle;
         }
     }
@@ -77,51 +82,51 @@ static void paint_motionsimulator_vehicle(
         case 0:
             // Simulator
             imageId = simulatorImageId;
-            sub_98197C(session, imageId, offsetX, offsetY, 20, 20, 44, offsetZ, offsetX, offsetY, offsetZ);
+            PaintAddImageAsParent(session, imageId, offsetX, offsetY, 20, 20, 44, offsetZ, offsetX, offsetY, offsetZ);
             // Stairs
             imageId = (SPR_MOTION_SIMULATOR_STAIRS_R0 + direction) | session->TrackColours[SCHEME_MISC];
-            sub_98199C(session, imageId, offsetX, offsetY, 20, 20, 44, offsetZ, offsetX, offsetY, offsetZ);
+            PaintAddImageAsChild(session, imageId, offsetX, offsetY, 20, 20, 44, offsetZ, offsetX, offsetY, offsetZ);
             // Stairs (rail)
             imageId = (SPR_MOTION_SIMULATOR_STAIRS_RAIL_R0 + direction) | session->TrackColours[SCHEME_MISC];
-            sub_98197C(session, imageId, offsetX, offsetY, 20, 2, 44, offsetZ, offsetX, offsetY + 32, offsetZ);
+            PaintAddImageAsParent(session, imageId, offsetX, offsetY, 20, 2, 44, offsetZ, offsetX, offsetY + 32, offsetZ);
             break;
         case 1:
             // Simulator
             imageId = simulatorImageId;
-            sub_98197C(session, imageId, offsetX, offsetY, 20, 20, 44, offsetZ, offsetX, offsetY, offsetZ);
+            PaintAddImageAsParent(session, imageId, offsetX, offsetY, 20, 20, 44, offsetZ, offsetX, offsetY, offsetZ);
             // Stairs
             imageId = (SPR_MOTION_SIMULATOR_STAIRS_R0 + direction) | session->TrackColours[SCHEME_MISC];
-            sub_98199C(session, imageId, offsetX, offsetY, 20, 20, 44, offsetZ, offsetX, offsetY, offsetZ);
+            PaintAddImageAsChild(session, imageId, offsetX, offsetY, 20, 20, 44, offsetZ, offsetX, offsetY, offsetZ);
             // Stairs (rail)
             imageId = (SPR_MOTION_SIMULATOR_STAIRS_RAIL_R0 + direction) | session->TrackColours[SCHEME_MISC];
-            sub_98197C(session, imageId, offsetX, offsetY, 2, 20, 44, offsetZ, offsetX + 34, offsetY, offsetZ);
+            PaintAddImageAsParent(session, imageId, offsetX, offsetY, 2, 20, 44, offsetZ, offsetX + 34, offsetY, offsetZ);
             break;
         case 2:
             // Stairs (rail)
             imageId = (SPR_MOTION_SIMULATOR_STAIRS_RAIL_R0 + direction) | session->TrackColours[SCHEME_MISC];
-            sub_98197C(session, imageId, offsetX, offsetY, 20, 2, 44, offsetZ, offsetX, offsetY - 10, offsetZ);
+            PaintAddImageAsParent(session, imageId, offsetX, offsetY, 20, 2, 44, offsetZ, offsetX, offsetY - 10, offsetZ);
             // Stairs
             imageId = (SPR_MOTION_SIMULATOR_STAIRS_R0 + direction) | session->TrackColours[SCHEME_MISC];
-            sub_98197C(session, imageId, offsetX, offsetY, 20, 20, 44, offsetZ, offsetX, offsetY + 5, offsetZ);
+            PaintAddImageAsParent(session, imageId, offsetX, offsetY, 20, 20, 44, offsetZ, offsetX, offsetY + 5, offsetZ);
             // Simulator
             imageId = simulatorImageId;
-            sub_98199C(session, imageId, offsetX, offsetY, 20, 20, 44, offsetZ, offsetX, offsetY + 5, offsetZ);
+            PaintAddImageAsChild(session, imageId, offsetX, offsetY, 20, 20, 44, offsetZ, offsetX, offsetY + 5, offsetZ);
             break;
         case 3:
             // Stairs (rail)
             imageId = (SPR_MOTION_SIMULATOR_STAIRS_RAIL_R0 + direction) | session->TrackColours[SCHEME_MISC];
-            sub_98197C(session, imageId, offsetX, offsetY, 2, 20, 44, offsetZ, offsetX - 10, offsetY, offsetZ);
+            PaintAddImageAsParent(session, imageId, offsetX, offsetY, 2, 20, 44, offsetZ, offsetX - 10, offsetY, offsetZ);
             // Stairs
             imageId = (SPR_MOTION_SIMULATOR_STAIRS_R0 + direction) | session->TrackColours[SCHEME_MISC];
-            sub_98197C(session, imageId, offsetX, offsetY, 20, 20, 44, offsetZ, offsetX + 5, offsetY, offsetZ);
+            PaintAddImageAsParent(session, imageId, offsetX, offsetY, 20, 20, 44, offsetZ, offsetX + 5, offsetY, offsetZ);
             // Simulator
             imageId = simulatorImageId;
-            sub_98199C(session, imageId, offsetX, offsetY, 20, 20, 44, offsetZ, offsetX + 5, offsetY, offsetZ);
+            PaintAddImageAsChild(session, imageId, offsetX, offsetY, 20, 20, 44, offsetZ, offsetX + 5, offsetY, offsetZ);
             break;
     }
 
     session->CurrentlyDrawnItem = savedTileElement;
-    session->InteractionType = VIEWPORT_INTERACTION_ITEM_RIDE;
+    session->InteractionType = ViewportInteractionItem::Ride;
 }
 
 /** rct2: 0x008A85C4 */
@@ -132,14 +137,17 @@ static void paint_motionsimulator(
     trackSequence = track_map_2x2[direction][trackSequence];
 
     int32_t edges = edges_2x2[trackSequence];
-    Ride* ride = get_ride(rideIndex);
-    LocationXY16 position = { session->MapPosition.x, session->MapPosition.y };
 
     wooden_a_supports_paint_setup(session, (direction & 1), 0, height, session->TrackColours[SCHEME_MISC], nullptr);
     track_paint_util_paint_floor(session, edges, session->TrackColours[SCHEME_TRACK], height, floorSpritesCork);
-    track_paint_util_paint_fences(
-        session, edges, position, tileElement, ride, session->TrackColours[SCHEME_SUPPORTS], height, fenceSpritesRope,
-        session->CurrentRotation);
+
+    auto ride = get_ride(rideIndex);
+    if (ride != nullptr)
+    {
+        track_paint_util_paint_fences(
+            session, edges, session->MapPosition, tileElement, ride, session->TrackColours[SCHEME_SUPPORTS], height,
+            fenceSpritesRope, session->CurrentRotation);
+    }
 
     switch (trackSequence)
     {
@@ -162,11 +170,11 @@ static void paint_motionsimulator(
  *
  *  rct2: 0x00763520
  */
-TRACK_PAINT_FUNCTION get_track_paint_function_motionsimulator(int32_t trackType, int32_t direction)
+TRACK_PAINT_FUNCTION get_track_paint_function_motionsimulator(int32_t trackType)
 {
     switch (trackType)
     {
-        case FLAT_TRACK_ELEM_2_X_2:
+        case TrackElemType::FlatTrack2x2:
             return paint_motionsimulator;
     }
     return nullptr;

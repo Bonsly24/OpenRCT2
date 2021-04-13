@@ -11,7 +11,7 @@
 #include <string>
 #include <string_view>
 
-inline std::string StringFromHex(const std::string_view& input)
+inline std::string StringFromHex(std::string_view input)
 {
     assert((input.size() & 1) == 0);
 
@@ -21,6 +21,38 @@ inline std::string StringFromHex(const std::string_view& input)
     {
         auto val = std::stoi(std::string(input.substr(i, 2)), nullptr, 16);
         result.push_back(val);
+    }
+    return result;
+}
+
+inline std::string NormaliseLineEndings(std::string_view input)
+{
+    std::string result;
+    result.reserve(input.size());
+    auto ignoreNextNewLine = false;
+    for (auto c : input)
+    {
+        if (c == '\r')
+        {
+            ignoreNextNewLine = true;
+            result.push_back('\n');
+        }
+        else if (c == '\n')
+        {
+            if (ignoreNextNewLine)
+            {
+                ignoreNextNewLine = false;
+            }
+            else
+            {
+                result.push_back('\n');
+            }
+        }
+        else
+        {
+            ignoreNextNewLine = false;
+            result.push_back(c);
+        }
     }
     return result;
 }

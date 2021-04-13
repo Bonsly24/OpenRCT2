@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (c) 2014-2019 OpenRCT2 developers
+ * Copyright (c) 2014-2020 OpenRCT2 developers
  *
  * For a complete list of all authors, please refer to contributors.md
  * Interested in contributing? Visit https://github.com/OpenRCT2/OpenRCT2
@@ -12,6 +12,7 @@
 #include "../Cheats.h"
 #include "../common.h"
 #include "../peep/Peep.h"
+#include "../ride/ShopItem.h"
 
 #include <vector>
 
@@ -36,6 +37,7 @@ enum
 
 enum
 {
+    CAMPAIGN_FIRST_WEEK_FLAG = (1 << 6),
     CAMPAIGN_ACTIVE_FLAG = (1 << 7)
 };
 
@@ -47,7 +49,7 @@ struct MarketingCampaign
     union
     {
         ride_id_t RideId{};
-        uint8_t ShopItemType;
+        ShopItemIndex ShopItemType;
     };
 };
 
@@ -65,3 +67,4 @@ void marketing_set_guest_campaign(Peep* peep, int32_t campaign);
 bool marketing_is_campaign_type_applicable(int32_t campaignType);
 MarketingCampaign* marketing_get_campaign(int32_t campaignType);
 void marketing_new_campaign(const MarketingCampaign& campaign);
+void MarketingCancelCampaignsForRide(const ride_id_t rideId);

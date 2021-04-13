@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (c) 2014-2019 OpenRCT2 developers
+ * Copyright (c) 2014-2020 OpenRCT2 developers
  *
  * For a complete list of all authors, please refer to contributors.md
  * Interested in contributing? Visit https://github.com/OpenRCT2/OpenRCT2
@@ -11,12 +11,11 @@
 #define _CABLE_LIFT_H_
 
 #include "../common.h"
-#include "Vehicle.h"
+#include "Ride.h"
 
-rct_vehicle* cable_lift_segment_create(
-    ride_id_t rideIndex, int32_t x, int32_t y, int32_t z, int32_t direction, uint16_t var_44, int32_t remaining_distance,
-    bool head);
-void cable_lift_update(rct_vehicle* vehicle);
-int32_t cable_lift_update_track_motion(rct_vehicle* cableLift);
+struct Vehicle;
+
+Vehicle* cable_lift_segment_create(
+    Ride& ride, int32_t x, int32_t y, int32_t z, int32_t direction, uint16_t var_44, int32_t remaining_distance, bool head);
 
 #endif

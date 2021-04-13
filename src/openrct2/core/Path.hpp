@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (c) 2014-2019 OpenRCT2 developers
+ * Copyright (c) 2014-2020 OpenRCT2 developers
  *
  * For a complete list of all authors, please refer to contributors.md
  * Interested in contributing? Visit https://github.com/OpenRCT2/OpenRCT2
@@ -16,9 +16,9 @@
 namespace Path
 {
     utf8* Append(utf8* buffer, size_t bufferSize, const utf8* src);
-    std::string Combine(const std::string& a, const std::string& b);
+    std::string Combine(std::string_view a, std::string_view b);
 
-    template<typename... Args> static std::string Combine(const std::string& a, const std::string& b, Args... args)
+    template<typename... Args> static std::string Combine(std::string_view a, std::string_view b, Args... args)
     {
         return Combine(a, Combine(b, args...));
     }

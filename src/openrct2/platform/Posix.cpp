@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (c) 2014-2019 OpenRCT2 developers
+ * Copyright (c) 2014-2020 OpenRCT2 developers
  *
  * For a complete list of all authors, please refer to contributors.md
  * Interested in contributing? Visit https://github.com/OpenRCT2/OpenRCT2
@@ -9,23 +9,22 @@
 
 #if defined(__unix__) || (defined(__APPLE__) && defined(__MACH__)) || defined(__FreeBSD__)
 
+#    include "../OpenRCT2.h"
+#    include "../config/Config.h"
+#    include "../core/FileSystem.hpp"
+#    include "../core/Path.hpp"
+#    include "../core/String.hpp"
+#    include "../localisation/Date.h"
+#    include "../localisation/Language.h"
+#    include "../util/Util.h"
+#    include "Platform2.h"
+
 #    include <cstring>
 #    include <ctype.h>
 #    include <dirent.h>
 #    include <errno.h>
 #    include <fcntl.h>
 #    include <fnmatch.h>
-#    if !defined(__EMSCRIPTEN__) && __has_include(<fts.h>)
-#        include <fts.h>
-#    endif
-#    include "../OpenRCT2.h"
-#    include "../config/Config.h"
-#    include "../core/Path.hpp"
-#    include "../localisation/Date.h"
-#    include "../localisation/Language.h"
-#    include "../util/Util.h"
-#    include "platform.h"
-
 #    include <libgen.h>
 #    include <locale.h>
 #    include <locale>
@@ -70,111 +69,21 @@ void platform_get_time_utc(rct2_time* out_time)
     out_time->hour = timeinfo->tm_hour;
 }
 
-void platform_get_date_local(rct2_date* out_date)
-{
-    assert(out_date != nullptr);
-    time_t rawtime;
-    struct tm* timeinfo;
-    time(&rawtime);
-    timeinfo = localtime(&rawtime);
-    out_date->day = timeinfo->tm_mday;
-    out_date->month = timeinfo->tm_mon + 1;
-    out_date->year = timeinfo->tm_year + 1900;
-    out_date->day_of_week = timeinfo->tm_wday;
-}
-
-void platform_get_time_local(rct2_time* out_time)
-{
-    assert(out_time != nullptr);
-    time_t rawtime;
-    struct tm* timeinfo;
-    time(&rawtime);
-    timeinfo = localtime(&rawtime);
-    out_time->second = timeinfo->tm_sec;
-    out_time->minute = timeinfo->tm_min;
-    out_time->hour = timeinfo->tm_hour;
-}
-
-static size_t platform_utf8_to_multibyte(const utf8* path, char* buffer, size_t buffer_size)
-{
-    wchar_t* wpath = utf8_to_widechar(path);
-    setlocale(LC_CTYPE, "UTF-8");
-    size_t len = wcstombs(NULL, wpath, 0);
-    bool truncated = false;
-    if (len > buffer_size - 1)
-    {
-        truncated = true;
-        len = buffer_size - 1;
-    }
-    wcstombs(buffer, wpath, len);
-    buffer[len] = '\0';
-    if (truncated)
-        log_warning("truncated string %s", buffer);
-    free(wpath);
-    return len;
-}
-
-bool platform_file_exists(const utf8* path)
-{
-    char buffer[MAX_PATH];
-    platform_utf8_to_multibyte(path, buffer, MAX_PATH);
-    bool exists = access(buffer, F_OK) != -1;
-    log_verbose("file '%s' exists = %i", buffer, exists);
-    return exists;
-}
-
 bool platform_directory_exists(const utf8* path)
 {
-    char buffer[MAX_PATH];
-    platform_utf8_to_multibyte(path, buffer, MAX_PATH);
     struct stat dirinfo;
-    int32_t result = stat(buffer, &dirinfo);
-    log_verbose("checking dir %s, result = %d, is_dir = %d", buffer, result, S_ISDIR(dirinfo.st_mode));
-    if ((result != 0) || !S_ISDIR(dirinfo.st_mode))
-    {
-        return false;
-    }
-    return true;
+    int32_t result = stat(path, &dirinfo);
+    log_verbose("checking dir %s, result = %d, is_dir = %d", path, result, S_ISDIR(dirinfo.st_mode));
+    return result == 0 && S_ISDIR(dirinfo.st_mode);
 }
 
 bool platform_original_game_data_exists(const utf8* path)
 {
-    char buffer[MAX_PATH];
-    platform_utf8_to_multibyte(path, buffer, MAX_PATH);
     char checkPath[MAX_PATH];
-    safe_strcpy(checkPath, buffer, MAX_PATH);
+    safe_strcpy(checkPath, path, MAX_PATH);
     safe_strcat_path(checkPath, "Data", MAX_PATH);
     safe_strcat_path(checkPath, "g1.dat", MAX_PATH);
-    return platform_file_exists(checkPath);
-}
-
-bool platform_original_rct1_data_exists(const utf8* path)
-{
-    char buffer[MAX_PATH], checkPath1[MAX_PATH], checkPath2[MAX_PATH];
-    platform_utf8_to_multibyte(path, buffer, MAX_PATH);
-    safe_strcat_path(buffer, "Data", MAX_PATH);
-    safe_strcpy(checkPath1, buffer, MAX_PATH);
-    safe_strcpy(checkPath2, buffer, MAX_PATH);
-    safe_strcat_path(checkPath1, "CSG1.DAT", MAX_PATH);
-    safe_strcat_path(checkPath2, "CSG1.1", MAX_PATH);
-
-    // Since Linux is case sensitive (and macOS sometimes too), make sure we handle case properly.
-    std::string path1result = Path::ResolveCasing(checkPath1);
-    if (!path1result.empty())
-    {
-        return true;
-    }
-    else
-    {
-        std::string path2result = Path::ResolveCasing(checkPath2);
-
-        if (!path2result.empty())
-        {
-            return true;
-        }
-    }
-
-    return false;
+    return Platform::FileExists(checkPath);
 }
 
 // Implement our own version of getumask(), as it is documented being
@@ -190,7 +99,7 @@ bool platform_ensure_directory_exists(const utf8* path)
 {
     mode_t mask = openrct2_getumask();
     char buffer[MAX_PATH];
-    platform_utf8_to_multibyte(path, buffer, MAX_PATH);
+    safe_strcpy(buffer, path, sizeof(buffer));
 
     log_verbose("Create directory: %s", buffer);
     for (char* p = buffer + 1; *p != '\0'; p++)
@@ -228,81 +137,32 @@ bool platform_ensure_directory_exists(const utf8* path)
 
 bool platform_directory_delete(const utf8* path)
 {
-#    ifdef _FTS_H
-    log_verbose("Recursively deleting directory %s", path);
-
-    FTS* ftsp;
-    FTSENT *p, *chp;
-
-    // fts_open only accepts non const paths, so we have to take a copy
-    char* ourPath = _strdup(path);
-
-    utf8* const patharray[2] = { ourPath, NULL };
-    if ((ftsp = fts_open(patharray, FTS_COMFOLLOW | FTS_LOGICAL | FTS_NOCHDIR, NULL)) == nullptr)
-    {
-        log_error("fts_open returned NULL");
-        free(ourPath);
-        return false;
-    }
-
-    chp = fts_children(ftsp, 0);
-    if (chp == nullptr)
-    {
-        log_verbose("No files to traverse, deleting directory %s", path);
-        if (remove(path) != 0)
-        {
-            log_error("Failed to remove %s, errno = %d", path, errno);
-        }
-        free(ourPath);
-        return true; // No files to traverse
-    }
-
-    while ((p = fts_read(ftsp)) != nullptr)
-    {
-        switch (p->fts_info)
-        {
-            case FTS_DP: // Directory postorder, which means
-                         // the directory is empty
-
-            case FTS_F: // File
-                if (remove(p->fts_path))
-                {
-                    log_error("Could not remove %s", p->fts_path);
-                    fts_close(ftsp);
-                    free(ourPath);
-                    return false;
-                }
-                break;
-            case FTS_ERR:
-                log_error("Error traversing %s", path);
-                fts_close(ftsp);
-                free(ourPath);
-                return false;
-        }
-    }
-
-    free(ourPath);
-    fts_close(ftsp);
-
-#    else
-    log_warning("OpenRCT2 was compiled without fts.h, deleting '%s' not done.", path);
-#    endif // _FTS_H
-    return true;
+    return fs::remove_all(fs::u8path(path)) > 0;
 }
 
-utf8* platform_get_absolute_path(const utf8* relative_path, const utf8* base_path)
+std::string platform_get_absolute_path(const utf8* relative_path, const utf8* base_path)
 {
-    utf8 path[MAX_PATH];
+    std::string result;
+    if (relative_path != nullptr)
+    {
+        std::string pathToResolve;
+        if (base_path == nullptr)
+        {
+            pathToResolve = std::string(relative_path);
+        }
+        else
+        {
+            pathToResolve = std::string(base_path) + std::string("/") + relative_path;
+        }
 
-    if (base_path != nullptr)
-    {
-        snprintf(path, MAX_PATH, "%s/%s", base_path, relative_path);
+        auto realpathResult = realpath(pathToResolve.c_str(), nullptr);
+        if (realpathResult != nullptr)
+        {
+            result = std::string(realpathResult);
+            free(realpathResult);
+        }
     }
-    else
-    {
-        safe_strcpy(path, base_path, MAX_PATH);
-    }
-    return realpath(path, NULL);
+    return result;
 }
 
 bool platform_lock_single_instance()
@@ -391,7 +251,7 @@ bool platform_file_copy(const utf8* srcPath, const utf8* dstPath, bool overwrite
     size_t file_offset = 0;
 
     // Copy file in FILE_BUFFER_SIZE-d chunks
-    char* buffer = (char*)malloc(FILE_BUFFER_SIZE);
+    char* buffer = static_cast<char*>(malloc(FILE_BUFFER_SIZE));
     while ((amount_read = fread(buffer, FILE_BUFFER_SIZE, 1, srcFile)))
     {
         fwrite(buffer, amount_read, 1, dstFile);
@@ -432,7 +292,7 @@ time_t platform_file_get_modified_time(const utf8* path)
     return 100;
 }
 
-uint8_t platform_get_locale_temperature_format()
+TemperatureUnit platform_get_locale_temperature_format()
 {
 // LC_MEASUREMENT is GNU specific.
 #    ifdef LC_MEASUREMENT
@@ -446,10 +306,10 @@ uint8_t platform_get_locale_temperature_format()
         if (!fnmatch("*_US*", langstring, 0) || !fnmatch("*_BS*", langstring, 0) || !fnmatch("*_BZ*", langstring, 0)
             || !fnmatch("*_PW*", langstring, 0))
         {
-            return TEMPERATURE_FORMAT_F;
+            return TemperatureUnit::Fahrenheit;
         }
     }
-    return TEMPERATURE_FORMAT_C;
+    return TemperatureUnit::Celsius;
 }
 
 uint8_t platform_get_locale_date_format()
@@ -481,23 +341,20 @@ datetime64 platform_get_datetime_now_utc()
 
     // Epoch starts from: 1970-01-01T00:00:00Z
     // Convert to ticks from 0001-01-01T00:00:00Z
-    uint64_t utcEpochTicks = (uint64_t)tv.tv_sec * 10000000ULL + tv.tv_usec * 10;
+    uint64_t utcEpochTicks = static_cast<uint64_t>(tv.tv_sec) * 10000000ULL + tv.tv_usec * 10;
     datetime64 utcNow = epochAsTicks + utcEpochTicks;
     return utcNow;
 }
 
-utf8* platform_get_username()
+std::string platform_get_username()
 {
-    struct passwd* pw = getpwuid(getuid());
-
-    if (pw)
+    std::string result;
+    auto pw = getpwuid(getuid());
+    if (pw != nullptr)
     {
-        return pw->pw_name;
+        result = std::string(pw->pw_name);
     }
-    else
-    {
-        return nullptr;
-    }
+    return result;
 }
 
 bool platform_process_is_elevated()

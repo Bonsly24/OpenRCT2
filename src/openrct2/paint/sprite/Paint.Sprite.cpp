@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (c) 2014-2019 OpenRCT2 developers
+ * Copyright (c) 2014-2020 OpenRCT2 developers
  *
  * For a complete list of all authors, please refer to contributors.md
  * Interested in contributing? Visit https://github.com/OpenRCT2/OpenRCT2
@@ -10,11 +10,13 @@
 #include "Paint.Sprite.h"
 
 #include "../../drawing/Drawing.h"
+#include "../../drawing/LightFX.h"
 #include "../../interface/Viewport.h"
 #include "../../peep/Staff.h"
 #include "../../ride/RideData.h"
 #include "../../ride/TrackDesign.h"
 #include "../../ride/VehiclePaint.h"
+#include "../../world/EntityList.h"
 #include "../../world/Sprite.h"
 #include "../Paint.h"
 
@@ -34,12 +36,6 @@ void sprite_paint_setup(paint_session* session, const uint16_t x, const uint16_t
         return;
     }
 
-    uint16_t sprite_idx = sprite_get_first_in_quadrant(x, y);
-    if (sprite_idx == SPRITE_INDEX_NULL)
-    {
-        return;
-    }
-
     rct_drawpixelinfo* dpi = &session->DPI;
     if (dpi->zoom_level > 2)
     {
@@ -48,22 +44,19 @@ void sprite_paint_setup(paint_session* session, const uint16_t x, const uint16_t
 
     const bool highlightPathIssues = (session->ViewFlags & VIEWPORT_FLAG_HIGHLIGHT_PATH_ISSUES);
 
-    for (const rct_sprite* spr = get_sprite(sprite_idx); sprite_idx != SPRITE_INDEX_NULL;
-         sprite_idx = spr->generic.next_in_quadrant)
+    for (const auto* spr : EntityTileList({ x, y }))
     {
-        spr = get_sprite(sprite_idx);
-
         if (highlightPathIssues)
         {
-            if (spr->generic.sprite_identifier == SPRITE_IDENTIFIER_PEEP)
+            const auto staff = spr->As<Staff>();
+            if (staff != nullptr)
             {
-                Peep* peep = (Peep*)spr;
-                if (!(peep->type == PEEP_TYPE_STAFF && peep->staff_type == STAFF_TYPE_HANDYMAN))
+                if (staff->AssignedStaffType != StaffType::Handyman)
                 {
                     continue;
                 }
             }
-            else if (spr->generic.sprite_identifier != SPRITE_IDENTIFIER_LITTER)
+            else if (spr->Type != EntityType::Litter)
             {
                 continue;
             }
@@ -75,15 +68,15 @@ void sprite_paint_setup(paint_session* session, const uint16_t x, const uint16_t
         // height of the slope element, and consequently clipped.
         if ((session->ViewFlags & VIEWPORT_FLAG_CLIP_VIEW))
         {
-            if (spr->generic.z > (gClipHeight * 8))
+            if (spr->z > (gClipHeight * COORDS_Z_STEP))
             {
                 continue;
             }
-            if (spr->generic.x / 32 < gClipSelectionA.x || spr->generic.x / 32 > gClipSelectionB.x)
+            if (spr->x < gClipSelectionA.x || spr->x > gClipSelectionB.x)
             {
                 continue;
             }
-            if (spr->generic.y / 32 < gClipSelectionA.y || spr->generic.y / 32 > gClipSelectionB.y)
+            if (spr->y < gClipSelectionA.y || spr->y > gClipSelectionB.y)
             {
                 continue;
             }
@@ -91,35 +84,66 @@ void sprite_paint_setup(paint_session* session, const uint16_t x, const uint16_t
 
         dpi = &session->DPI;
 
-        if (dpi->y + dpi->height <= spr->generic.sprite_top || spr->generic.sprite_bottom <= dpi->y
-            || dpi->x + dpi->width <= spr->generic.sprite_left || spr->generic.sprite_right <= dpi->x)
+        if (dpi->y + dpi->height <= spr->sprite_top || spr->sprite_bottom <= dpi->y || dpi->x + dpi->width <= spr->sprite_left
+            || spr->sprite_right <= dpi->x)
         {
             continue;
         }
 
         int32_t image_direction = session->CurrentRotation;
         image_direction <<= 3;
-        image_direction += spr->generic.sprite_direction;
+        image_direction += spr->sprite_direction;
         image_direction &= 0x1F;
 
         session->CurrentlyDrawnItem = spr;
-        session->SpritePosition.x = spr->generic.x;
-        session->SpritePosition.y = spr->generic.y;
-        session->InteractionType = VIEWPORT_INTERACTION_ITEM_SPRITE;
+        session->SpritePosition.x = spr->x;
+        session->SpritePosition.y = spr->y;
+        session->InteractionType = ViewportInteractionItem::Entity;
 
-        switch (spr->generic.sprite_identifier)
+        switch (spr->Type)
         {
-            case SPRITE_IDENTIFIER_VEHICLE:
-                vehicle_paint(session, (rct_vehicle*)spr, image_direction);
+            case EntityType::Vehicle:
+                PaintEntity(session, spr->As<Vehicle>(), image_direction);
+#ifdef __ENABLE_LIGHTFX__
+                if (lightfx_for_vehicles_is_available())
+                {
+                    lightfx_add_lights_magic_vehicle(spr->As<Vehicle>());
+                }
+#endif
                 break;
-            case SPRITE_IDENTIFIER_PEEP:
-                peep_paint(session, (Peep*)spr, image_direction);
+            case EntityType::Guest:
+            case EntityType::Staff:
+                PaintEntity(session, spr->As<Peep>(), image_direction);
                 break;
-            case SPRITE_IDENTIFIER_MISC:
-                misc_paint(session, spr, image_direction);
+            case EntityType::SteamParticle:
+                PaintEntity(session, spr->As<SteamParticle>(), image_direction);
                 break;
-            case SPRITE_IDENTIFIER_LITTER:
-                litter_paint(session, (rct_litter*)spr, image_direction);
+            case EntityType::MoneyEffect:
+                PaintEntity(session, spr->As<MoneyEffect>(), image_direction);
+                break;
+            case EntityType::CrashedVehicleParticle:
+                PaintEntity(session, spr->As<VehicleCrashParticle>(), image_direction);
+                break;
+            case EntityType::ExplosionCloud:
+                PaintEntity(session, spr->As<ExplosionCloud>(), image_direction);
+                break;
+            case EntityType::CrashSplash:
+                PaintEntity(session, spr->As<CrashSplashParticle>(), image_direction);
+                break;
+            case EntityType::ExplosionFlare:
+                PaintEntity(session, spr->As<ExplosionFlare>(), image_direction);
+                break;
+            case EntityType::JumpingFountain:
+                PaintEntity(session, spr->As<JumpingFountain>(), image_direction);
+                break;
+            case EntityType::Balloon:
+                PaintEntity(session, spr->As<Balloon>(), image_direction);
+                break;
+            case EntityType::Duck:
+                PaintEntity(session, spr->As<Duck>(), image_direction);
+                break;
+            case EntityType::Litter:
+                PaintEntity(session, spr->As<Litter>(), image_direction);
                 break;
             default:
                 assert(false);

@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (c) 2014-2019 OpenRCT2 developers
+ * Copyright (c) 2014-2020 OpenRCT2 developers
  *
  * For a complete list of all authors, please refer to contributors.md
  * Interested in contributing? Visit https://github.com/OpenRCT2/OpenRCT2
@@ -19,7 +19,7 @@ namespace Crypt
     template<size_t TLength> class HashAlgorithm
     {
     public:
-        typedef std::array<uint8_t, TLength> Result;
+        using Result = std::array<uint8_t, TLength>;
 
         virtual ~HashAlgorithm() = default;
         virtual HashAlgorithm* Clear() = 0;
@@ -32,8 +32,8 @@ namespace Crypt
     public:
         virtual ~RsaKey() = default;
         virtual void Generate() = 0;
-        virtual void SetPrivate(const std::string_view& pem) = 0;
-        virtual void SetPublic(const std::string_view& pem) = 0;
+        virtual void SetPrivate(std::string_view pem) = 0;
+        virtual void SetPublic(std::string_view pem) = 0;
         virtual std::string GetPrivate() = 0;
         virtual std::string GetPublic() = 0;
     };

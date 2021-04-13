@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (c) 2014-2019 OpenRCT2 developers
+ * Copyright (c) 2014-2020 OpenRCT2 developers
  *
  * For a complete list of all authors, please refer to contributors.md
  * Interested in contributing? Visit https://github.com/OpenRCT2/OpenRCT2
@@ -8,7 +8,6 @@
  *****************************************************************************/
 
 #ifdef _WIN32
-#    define WIN32_LEAN_AND_MEAN
 #    include <windows.h>
 #endif
 
@@ -44,6 +43,8 @@ namespace Guard
         ASSERT_BEHAVIOUR::CASSERT
 #endif
         ;
+
+    static std::optional<std::string> _lastAssertMessage = std::nullopt;
 
 #ifdef _WIN32
     static void GetAssertMessage(char* buffer, size_t bufferSize, const char* formattedMessage);
@@ -82,6 +83,11 @@ namespace Guard
         {
             formattedMessage = String::Format_VA(message, args);
             Console::Error::WriteLine(formattedMessage);
+        }
+
+        if (formattedMessage != nullptr)
+        {
+            _lastAssertMessage = std::make_optional(formattedMessage);
         }
 
 #ifdef DEBUG
@@ -124,6 +130,11 @@ namespace Guard
     void Fail_VA(const char* message, va_list args)
     {
         Assert_VA(false, message, args);
+    }
+
+    std::optional<std::string> GetLastAssertMessage()
+    {
+        return _lastAssertMessage;
     }
 
 #ifdef _WIN32

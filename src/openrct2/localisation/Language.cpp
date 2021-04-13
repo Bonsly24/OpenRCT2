@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (c) 2014-2019 OpenRCT2 developers
+ * Copyright (c) 2014-2020 OpenRCT2 developers
  *
  * For a complete list of all authors, please refer to contributors.md
  * Interested in contributing? Visit https://github.com/OpenRCT2/OpenRCT2
@@ -33,6 +33,7 @@ const language_descriptor LanguagesDescriptors[LANGUAGE_COUNT] =
     { "de-DE", "German",                "Deutsch",               FAMILY_OPENRCT2_SPRITE,                false }, // LANGUAGE_GERMAN
     { "en-GB", "English (UK)",          "English (UK)",          FAMILY_OPENRCT2_SPRITE,                false }, // LANGUAGE_ENGLISH_UK
     { "en-US", "English (US)",          "English (US)",          FAMILY_OPENRCT2_SPRITE,                false }, // LANGUAGE_ENGLISH_US
+    { "eo-OO", "Esperanto",             "Esperanto",             FAMILY_OPENRCT2_SPRITE,                false }, // LANGUAGE_ESPERANTO
     { "es-ES", "Spanish",               u8"Español",             FAMILY_OPENRCT2_SPRITE,                false }, // LANGUAGE_SPANISH
     { "fr-FR", "French",                u8"Français",            FAMILY_OPENRCT2_SPRITE,                false }, // LANGUAGE_FRENCH
     { "it-IT", "Italian",               "Italiano",              FAMILY_OPENRCT2_SPRITE,                false }, // LANGUAGE_ITALIAN
@@ -47,31 +48,9 @@ const language_descriptor LanguagesDescriptors[LANGUAGE_COUNT] =
     { "fi-FI", "Finnish",               "Suomi",                 FAMILY_OPENRCT2_SPRITE,                false }, // LANGUAGE_FINNISH
     { "sv-SE", "Swedish",               "Svenska",               FAMILY_OPENRCT2_SPRITE,                false }, // LANGUAGE_SWEDISH
     { "tr-TR", "Turkish",               "Türkçe",                FAMILY_OPENRCT2_SPRITE,                false }, // LANGUAGE_TURKISH
+    { "vi-VN", "Vietnamese",            "Vietnamese",            FAMILY(&TTFFamilySansSerif),           false }, // LANGUAGE_VIETNAMESE
 };
 // clang-format on
-
-// clang-format off
-const utf8 BlackUpArrowString[] =       { (utf8)(uint8_t)0xC2, (utf8)(uint8_t)0x8E, (utf8)(uint8_t)0xE2, (utf8)(uint8_t)0x96, (utf8)(uint8_t)0xB2, (utf8)(uint8_t)0x00 };
-const utf8 BlackDownArrowString[] =     { (utf8)(uint8_t)0xC2, (utf8)(uint8_t)0x8E, (utf8)(uint8_t)0xE2, (utf8)(uint8_t)0x96, (utf8)(uint8_t)0xBC, (utf8)(uint8_t)0x00 };
-const utf8 BlackLeftArrowString[] =     { (utf8)(uint8_t)0xC2, (utf8)(uint8_t)0x8E, (utf8)(uint8_t)0xE2, (utf8)(uint8_t)0x97, (utf8)(uint8_t)0x80, (utf8)(uint8_t)0x00 };
-const utf8 BlackRightArrowString[] =    { (utf8)(uint8_t)0xC2, (utf8)(uint8_t)0x8E, (utf8)(uint8_t)0xE2, (utf8)(uint8_t)0x96, (utf8)(uint8_t)0xB6, (utf8)(uint8_t)0x00 };
-const utf8 CheckBoxMarkString[] =       { (utf8)(uint8_t)0xE2, (utf8)(uint8_t)0x9C, (utf8)(uint8_t)0x93, (utf8)(uint8_t)0x00 };
-// clang-format on
-
-void utf8_remove_format_codes(utf8* text, bool allowcolours)
-{
-    const utf8* ch = text;
-    utf8* dstCh = text;
-    int32_t codepoint;
-    while ((codepoint = String::GetNextCodepoint(ch, &ch)) != 0)
-    {
-        if (!utf8_is_format_code(codepoint) || (allowcolours && utf8_is_colour_code(codepoint)))
-        {
-            dstCh = String::WriteCodepoint(dstCh, codepoint);
-        }
-    }
-    *dstCh = 0;
-}
 
 uint8_t language_get_id_from_locale(const char* locale)
 {
@@ -100,7 +79,9 @@ bool language_open(int32_t id)
     auto& objectManager = context->GetObjectManager();
     try
     {
-        localisationService.OpenLanguage(id, objectManager);
+        localisationService.OpenLanguage(id);
+        // Objects and their localised strings need to be refreshed
+        objectManager.ResetObjects();
         return true;
     }
     catch (const std::exception&)
@@ -123,12 +104,6 @@ void language_free_object_string(rct_string_id stringId)
 {
     auto& localisationService = OpenRCT2::GetContext()->GetLocalisationService();
     localisationService.FreeObjectString(stringId);
-}
-
-rct_string_id language_get_object_override_string_id(const char* identifier, uint8_t index)
-{
-    const auto& localisationService = OpenRCT2::GetContext()->GetLocalisationService();
-    return localisationService.GetObjectOverrideStringId(identifier, index);
 }
 
 rct_string_id language_allocate_object_string(const std::string& target)

@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (c) 2014-2019 OpenRCT2 developers
+ * Copyright (c) 2014-2020 OpenRCT2 developers
  *
  * For a complete list of all authors, please refer to contributors.md
  * Interested in contributing? Visit https://github.com/OpenRCT2/OpenRCT2
@@ -65,23 +65,23 @@ static constexpr const litter_sprite litter_sprites[] = {
  * Litter Paint Setup
  *  rct2: 0x006736FC
  */
-void litter_paint(paint_session* session, const rct_litter* litter, int32_t imageDirection)
+template<> void PaintEntity(paint_session* session, const Litter* litter, int32_t imageDirection)
 {
     rct_drawpixelinfo* dpi;
 
     dpi = &session->DPI;
-    if (dpi->zoom_level != 0)
+    if (dpi->zoom_level > 0)
         return; // If zoomed at all no litter drawn
 
     // litter has no sprite direction so remove that
     imageDirection >>= 3;
     // Some litter types have only 1 direction so remove
     // anything that isn't required.
-    imageDirection &= litter_sprites[litter->type].direction_mask;
+    imageDirection &= litter_sprites[litter->SubType].direction_mask;
 
-    uint32_t image_id = imageDirection + litter_sprites[litter->type].base_id;
+    uint32_t image_id = imageDirection + litter_sprites[litter->SubType].base_id;
 
-    // In the following call to sub_98197C, we add 4 (instead of 2) to the
+    // In the following call to PaintAddImageAsParent, we add 4 (instead of 2) to the
     //  bound_box_offset_z to make sure litter is drawn on top of railways
-    sub_98197C(session, image_id, 0, 0, 4, 4, -1, litter->z, -4, -4, litter->z + 4);
+    PaintAddImageAsParent(session, image_id, 0, 0, 4, 4, -1, litter->z, -4, -4, litter->z + 4);
 }

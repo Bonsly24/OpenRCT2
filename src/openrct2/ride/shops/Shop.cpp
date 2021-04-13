@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (c) 2014-2019 OpenRCT2 developers
+ * Copyright (c) 2014-2020 OpenRCT2 developers
  *
  * For a complete list of all authors, please refer to contributors.md
  * Interested in contributing? Visit https://github.com/OpenRCT2/OpenRCT2
@@ -29,15 +29,17 @@ static void shop_paint_setup(
     bool hasSupports = wooden_a_supports_paint_setup(
         session, direction & 1, 0, height, session->TrackColours[SCHEME_3], nullptr);
 
-    Ride* ride = get_ride(rideIndex);
-    rct_ride_entry* rideEntry = get_ride_entry(ride->subtype);
-    rct_ride_entry_vehicle* firstVehicleEntry = &rideEntry->vehicles[0];
-
-    if (rideEntry == nullptr || firstVehicleEntry == nullptr)
-    {
-        log_error("Error drawing shop, rideEntry or firstVehicleEntry is NULL.");
+    auto ride = get_ride(rideIndex);
+    if (ride == nullptr)
         return;
-    }
+
+    auto rideEntry = ride->GetRideEntry();
+    if (rideEntry == nullptr)
+        return;
+
+    auto firstVehicleEntry = &rideEntry->vehicles[0];
+    if (firstVehicleEntry == nullptr)
+        return;
 
     uint32_t imageId = session->TrackColours[SCHEME_TRACK];
     if (imageId & IMAGE_TYPE_REMAP_2_PLUS)
@@ -51,13 +53,13 @@ static void shop_paint_setup(
     {
         uint32_t foundationImageId = ((direction & 1) ? SPR_FLOOR_PLANKS_90_DEG : SPR_FLOOR_PLANKS)
             | session->TrackColours[SCHEME_3];
-        sub_98197C(session, foundationImageId, 0, 0, 28, 28, 45, height, 2, 2, height);
+        PaintAddImageAsParent(session, foundationImageId, 0, 0, 28, 28, 45, height, 2, 2, height);
 
-        sub_98199C(session, imageId, 0, 0, 28, 28, 45, height, 2, 2, height);
+        PaintAddImageAsChild(session, imageId, 0, 0, 28, 28, 45, height, 2, 2, height);
     }
     else
     {
-        sub_98197C(session, imageId, 0, 0, 28, 28, 45, height, 2, 2, height);
+        PaintAddImageAsParent(session, imageId, 0, 0, 28, 28, 45, height, 2, 2, height);
     }
 
     paint_util_set_segment_support_height(session, SEGMENTS_ALL, 0xFFFF, 0);
@@ -65,12 +67,12 @@ static void shop_paint_setup(
 }
 
 /* 0x00761160 */
-TRACK_PAINT_FUNCTION get_track_paint_function_shop(int32_t trackType, int32_t direction)
+TRACK_PAINT_FUNCTION get_track_paint_function_shop(int32_t trackType)
 {
     switch (trackType)
     {
-        case FLAT_TRACK_ELEM_1_X_1_A:
-        case FLAT_TRACK_ELEM_1_X_1_B:
+        case TrackElemType::FlatTrack1x1A:
+        case TrackElemType::FlatTrack1x1B:
             return shop_paint_setup;
     }
     return nullptr;

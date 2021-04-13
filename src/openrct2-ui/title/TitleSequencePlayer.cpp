@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (c) 2014-2019 OpenRCT2 developers
+ * Copyright (c) 2014-2020 OpenRCT2 developers
  *
  * For a complete list of all authors, please refer to contributors.md
  * Interested in contributing? Visit https://github.com/OpenRCT2/OpenRCT2
@@ -45,13 +45,9 @@ using namespace OpenRCT2;
 class TitleSequencePlayer final : public ITitleSequencePlayer
 {
 private:
-    static constexpr const char* SFMM_FILENAME = "Six Flags Magic Mountain.SC6";
-
-    IScenarioRepository& _scenarioRepository;
     GameState& _gameState;
 
-    size_t _sequenceId = 0;
-    TitleSequence* _sequence = nullptr;
+    std::unique_ptr<TitleSequence> _sequence;
     int32_t _position = 0;
     int32_t _waitCounter = 0;
 
@@ -60,9 +56,8 @@ private:
     CoordsXY _viewCentreLocation = {};
 
 public:
-    explicit TitleSequencePlayer(IScenarioRepository& scenarioRepository, GameState& gameState)
-        : _scenarioRepository(scenarioRepository)
-        , _gameState(gameState)
+    explicit TitleSequencePlayer(GameState& gameState)
+        : _gameState(gameState)
     {
     }
 
@@ -78,7 +73,6 @@ public:
 
     void Eject() override
     {
-        FreeTitleSequence(_sequence);
         _sequence = nullptr;
     }
 
@@ -98,8 +92,7 @@ public:
         }
 
         Eject();
-        _sequence = sequence;
-        _sequenceId = titleSequenceId;
+        _sequence = std::move(sequence);
 
         Reset();
         return true;
@@ -112,12 +105,12 @@ public:
 
         if (_sequence == nullptr)
         {
-            SetViewLocation(75 * 32, 75 * 32);
+            SetViewLocation(TileCoordsXY(75, 75).ToCoordsXY());
             return false;
         }
 
         // Check that position is valid
-        if (_position >= (int32_t)_sequence->NumCommands)
+        if (_position >= static_cast<int32_t>(_sequence->Commands.size()))
         {
             _position = 0;
             return false;
@@ -129,8 +122,8 @@ public:
             _waitCounter--;
             if (_waitCounter == 0)
             {
-                const TitleCommand* command = &_sequence->Commands[_position];
-                if (command->Type == TITLE_SCRIPT_WAIT)
+                const auto& command = _sequence->Commands[_position];
+                if (command.Type == TitleScript::Wait)
                 {
                     IncrementPosition();
                 }
@@ -140,14 +133,14 @@ public:
         {
             while (true)
             {
-                const TitleCommand* command = &_sequence->Commands[_position];
+                const auto& command = _sequence->Commands[_position];
                 if (ExecuteCommand(command))
                 {
-                    if (command->Type == TITLE_SCRIPT_WAIT)
+                    if (command.Type == TitleScript::Wait)
                     {
                         break;
                     }
-                    if (command->Type != TITLE_SCRIPT_RESTART)
+                    if (command.Type != TitleScript::Restart)
                     {
                         IncrementPosition();
                     }
@@ -162,7 +155,7 @@ public:
                 {
                     if (!SkipToNextLoadCommand() || _position == entryPosition)
                     {
-                        Console::Error::WriteLine("Unable to load any parks from %s.", _sequence->Name);
+                        Console::Error::WriteLine("Unable to load any parks from %s.", _sequence->Name.c_str());
                         return false;
                     }
                 }
@@ -179,7 +172,7 @@ public:
 
     void Seek(int32_t targetPosition) override
     {
-        if (targetPosition < 0 || targetPosition >= (int32_t)_sequence->NumCommands)
+        if (targetPosition < 0 || targetPosition >= static_cast<int32_t>(_sequence->Commands.size()))
         {
             throw std::runtime_error("Invalid position.");
         }
@@ -188,14 +181,14 @@ public:
             Reset();
         }
 
-        if (_sequence->Commands[targetPosition].Type == TITLE_SCRIPT_RESTART)
+        if (_sequence->Commands[targetPosition].Type == TitleScript::Restart)
         {
             targetPosition = 0;
         }
         // Set position to the last LOAD command before target position
         for (int32_t i = targetPosition; i >= 0; i--)
         {
-            const TitleCommand* command = &_sequence->Commands[i];
+            const TitleCommand& command = _sequence->Commands[i];
             if ((_position == i && _position != targetPosition) || TitleSequenceIsLoadCommand(command))
             {
                 // Break if we have a new load command or if we're already in the range of the correct load command
@@ -228,7 +221,7 @@ private:
     void IncrementPosition()
     {
         _position++;
-        if (_position >= (int32_t)_sequence->NumCommands)
+        if (_position >= static_cast<int32_t>(_sequence->Commands.size()))
         {
             _position = 0;
         }
@@ -242,119 +235,80 @@ private:
         {
             IncrementPosition();
             command = &_sequence->Commands[_position];
-        } while (!TitleSequenceIsLoadCommand(command) && _position != entryPosition);
+        } while (!TitleSequenceIsLoadCommand(*command) && _position != entryPosition);
         return _position != entryPosition;
     }
 
-    bool ExecuteCommand(const TitleCommand* command)
+    bool ExecuteCommand(const TitleCommand& command)
     {
-        switch (command->Type)
+        switch (command.Type)
         {
-            case TITLE_SCRIPT_END:
+            case TitleScript::End:
                 _waitCounter = 1;
                 break;
-            case TITLE_SCRIPT_WAIT:
+            case TitleScript::Wait:
                 // The waitCounter is measured in 25-ms game ticks. Previously it was seconds * 40 ticks/second, now it is ms /
                 // 25 ms/tick
-                _waitCounter = std::max<int32_t>(1, command->Milliseconds / (uint32_t)GAME_UPDATE_TIME_MS);
+                _waitCounter = std::max<int32_t>(1, command.Milliseconds / static_cast<uint32_t>(GAME_UPDATE_TIME_MS));
                 break;
-            case TITLE_SCRIPT_LOADMM:
+            case TitleScript::Location:
             {
-                const scenario_index_entry* entry = _scenarioRepository.GetByFilename(SFMM_FILENAME);
-                if (entry == nullptr)
-                {
-                    Console::Error::WriteLine("%s not found.", SFMM_FILENAME);
-                    return false;
-                }
-
-                const utf8* path = entry->path;
-                if (!LoadParkFromFile(path))
-                {
-                    Console::Error::WriteLine("Failed to load: \"%s\" for the title sequence.", path);
-                    return false;
-                }
+                auto loc = TileCoordsXY(command.X, command.Y).ToCoordsXY().ToTileCentre();
+                SetViewLocation(loc);
                 break;
             }
-            case TITLE_SCRIPT_LOCATION:
-            {
-                int32_t x = command->X * 32 + 16;
-                int32_t y = command->Y * 32 + 16;
-                SetViewLocation(x, y);
+            case TitleScript::Undefined:
                 break;
-            }
-            case TITLE_SCRIPT_ROTATE:
-                RotateView(command->Rotations);
+            case TitleScript::Loop:
                 break;
-            case TITLE_SCRIPT_ZOOM:
-                SetViewZoom(command->Zoom);
+            case TitleScript::EndLoop:
                 break;
-            case TITLE_SCRIPT_SPEED:
-                gGameSpeed = std::clamp<uint8_t>(command->Speed, 1, 4);
+            case TitleScript::Rotate:
+                RotateView(command.Rotations);
                 break;
-            case TITLE_SCRIPT_FOLLOW:
-                FollowSprite(command->SpriteIndex);
+            case TitleScript::Zoom:
+                SetViewZoom(command.Zoom);
                 break;
-            case TITLE_SCRIPT_RESTART:
+            case TitleScript::Speed:
+                gGameSpeed = std::clamp<uint8_t>(command.Speed, 1, 4);
+                break;
+            case TitleScript::Follow:
+                FollowSprite(command.SpriteIndex);
+                break;
+            case TitleScript::Restart:
                 Reset();
                 break;
-            case TITLE_SCRIPT_LOAD:
+            case TitleScript::Load:
             {
                 bool loadSuccess = false;
-                uint8_t saveIndex = command->SaveIndex;
-                TitleSequenceParkHandle* parkHandle = TitleSequenceGetParkHandle(_sequence, saveIndex);
+                uint8_t saveIndex = command.SaveIndex;
+                auto parkHandle = TitleSequenceGetParkHandle(*_sequence, saveIndex);
                 if (parkHandle != nullptr)
                 {
-                    loadSuccess = LoadParkFromStream((IStream*)parkHandle->Stream, parkHandle->HintPath);
-                    TitleSequenceCloseParkHandle(parkHandle);
+                    loadSuccess = LoadParkFromStream(parkHandle->Stream.get(), parkHandle->HintPath);
                 }
                 if (!loadSuccess)
                 {
-                    if (_sequence->NumSaves > saveIndex)
+                    if (_sequence->Saves.size() > saveIndex)
                     {
-                        const utf8* path = _sequence->Saves[saveIndex];
-                        Console::Error::WriteLine("Failed to load: \"%s\" for the title sequence.", path);
+                        const auto& path = _sequence->Saves[saveIndex];
+                        Console::Error::WriteLine("Failed to load: \"%s\" for the title sequence.", path.c_str());
                     }
                     return false;
                 }
                 break;
             }
-            case TITLE_SCRIPT_LOADRCT1:
-            {
-                source_desc sourceDesc;
-                if (!ScenarioSources::TryGetById(command->SaveIndex, &sourceDesc) || sourceDesc.index == -1)
-                {
-                    Console::Error::WriteLine("Invalid scenario id.");
-                    return false;
-                }
-
-                const utf8* path = nullptr;
-                size_t numScenarios = _scenarioRepository.GetCount();
-                for (size_t i = 0; i < numScenarios; i++)
-                {
-                    const scenario_index_entry* scenario = _scenarioRepository.GetByIndex(i);
-                    if (scenario && scenario->source_index == sourceDesc.index)
-                    {
-                        path = scenario->path;
-                        break;
-                    }
-                }
-                if (path == nullptr || !LoadParkFromFile(path))
-                {
-                    return false;
-                }
-                break;
-            }
-            case TITLE_SCRIPT_LOADSC:
+            case TitleScript::LoadSc:
             {
                 bool loadSuccess = false;
-                auto scenario = GetScenarioRepository()->GetByInternalName(command->Scenario);
+                auto scenario = GetScenarioRepository()->GetByInternalName(command.Scenario);
                 if (scenario != nullptr)
                 {
                     loadSuccess = LoadParkFromFile(scenario->path);
                 }
                 if (!loadSuccess)
                 {
-                    Console::Error::WriteLine("Failed to load: \"%s\" for the title sequence.", command->Scenario);
+                    Console::Error::WriteLine("Failed to load: \"%s\" for the title sequence.", command.Scenario);
                     return false;
                 }
                 break;
@@ -439,7 +393,7 @@ private:
      * @param stream The stream to read the park data from.
      * @param hintPath Hint path, the extension is grabbed to determine what importer to use.
      */
-    bool LoadParkFromStream(IStream* stream, const std::string& hintPath)
+    bool LoadParkFromStream(OpenRCT2::IStream* stream, const std::string& hintPath)
     {
         log_verbose("TitleSequencePlayer::LoadParkFromStream(%s)", hintPath.c_str());
         bool success = false;
@@ -481,7 +435,7 @@ private:
         window_close_by_class(WC_EDITOR_INVENTION_LIST_DRAG);
         window_close_by_class(WC_EDITOR_INVENTION_LIST);
         window_close_by_class(WC_EDITOR_OBJECT_SELECTION);
-        window_close_by_class(WC_EDTIOR_OBJECTIVE_OPTIONS);
+        window_close_by_class(WC_EDITOR_OBJECTIVE_OPTIONS);
         window_close_by_class(WC_EDITOR_SCENARIO_OPTIONS);
         window_close_by_class(WC_FINANCES);
         window_close_by_class(WC_FIRE_PROMPT);
@@ -501,35 +455,34 @@ private:
     void PrepareParkForPlayback()
     {
         auto windowManager = GetContext()->GetUiContext()->GetWindowManager();
-        windowManager->SetMainView(gSavedViewX, gSavedViewY, gSavedViewZoom, gSavedViewRotation);
+        windowManager->SetMainView(gSavedView, gSavedViewZoom, gSavedViewRotation);
         reset_sprite_spatial_index();
         reset_all_sprite_quadrant_placements();
         auto intent = Intent(INTENT_ACTION_REFRESH_NEW_RIDES);
         context_broadcast_intent(&intent);
         scenery_set_default_placement_configuration();
-        news_item_init_queue();
+        News::InitQueue();
         load_palette();
         gScreenAge = 0;
         gGameSpeed = 1;
     }
 
     /**
-     * Sets the map location to the given tile coordinates. Z is automatic.
-     * @param x X position in map tiles.
-     * @param y Y position in map tiles.
+     * Sets the map location to the given (big) coordinates. Z is automatic.
+     * @param loc X and Y position in big coordinates.
      */
-    void SetViewLocation(int32_t x, int32_t y)
+    void SetViewLocation(const CoordsXY& loc)
     {
         // Update viewport
         rct_window* w = window_get_main();
         if (w != nullptr)
         {
-            int32_t z = tile_element_height(x, y);
+            int32_t z = tile_element_height(loc);
 
             // Prevent scroll adjustment due to window placement when in-game
             auto oldScreenFlags = gScreenFlags;
             gScreenFlags = SCREEN_FLAGS_TITLE_DEMO;
-            window_set_location(w, x, y, z);
+            w->SetLocation({ loc, z });
             gScreenFlags = oldScreenFlags;
 
             viewport_update_position(w);
@@ -537,8 +490,7 @@ private:
             // Save known tile position in case of window resize
             _lastScreenWidth = w->width;
             _lastScreenHeight = w->height;
-            _viewCentreLocation.x = x;
-            _viewCentreLocation.y = y;
+            _viewCentreLocation = loc;
         }
     }
 
@@ -552,13 +504,13 @@ private:
         {
             if (w->width != _lastScreenWidth || w->height != _lastScreenHeight)
             {
-                SetViewLocation(_viewCentreLocation.x, _viewCentreLocation.y);
+                SetViewLocation(_viewCentreLocation);
             }
         }
     }
 };
 
-std::unique_ptr<ITitleSequencePlayer> CreateTitleSequencePlayer(IScenarioRepository& scenarioRepository, GameState& gameState)
+std::unique_ptr<ITitleSequencePlayer> CreateTitleSequencePlayer(GameState& gameState)
 {
-    return std::make_unique<TitleSequencePlayer>(scenarioRepository, gameState);
+    return std::make_unique<TitleSequencePlayer>(gameState);
 }

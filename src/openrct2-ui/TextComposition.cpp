@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (c) 2014-2019 OpenRCT2 developers
+ * Copyright (c) 2014-2020 OpenRCT2 developers
  *
  * For a complete list of all authors, please refer to contributors.md
  * Interested in contributing? Visit https://github.com/OpenRCT2/OpenRCT2
@@ -89,11 +89,10 @@ void TextComposition::HandleMessage(const SDL_Event* e)
                 }
 
                 utf8* newText = String::Duplicate(e->text.text);
-                utf8_remove_formatting(newText, false);
                 Insert(newText);
                 Memory::Free(newText);
 
-                console.RefreshCaret();
+                console.RefreshCaret(_session.SelectionStart);
                 window_update_textbox();
             }
             break;
@@ -106,13 +105,15 @@ void TextComposition::HandleMessage(const SDL_Event* e)
 
             uint16_t modifier = e->key.keysym.mod;
             SDL_Keycode key = e->key.keysym.sym;
+            SDL_Scancode scancode = e->key.keysym.scancode;
             if (key == SDLK_KP_ENTER)
             {
                 // Map Keypad enter to regular enter.
                 key = SDLK_RETURN;
+                scancode = SDL_SCANCODE_RETURN;
             }
 
-            GetContext()->GetUiContext()->SetKeysPressed(key, e->key.keysym.scancode);
+            GetContext()->GetUiContext()->SetKeysPressed(key, scancode);
 
             // Text input
             if (_session.Buffer == nullptr)
@@ -124,7 +125,7 @@ void TextComposition::HandleMessage(const SDL_Event* e)
             if (key == SDLK_BACKSPACE && (modifier & KEYBOARD_PRIMARY_MODIFIER))
             {
                 Clear();
-                console.RefreshCaret();
+                console.RefreshCaret(_session.SelectionStart);
                 window_update_textbox();
             }
 
@@ -139,17 +140,17 @@ void TextComposition::HandleMessage(const SDL_Event* e)
                         _session.SelectionSize = endOffset - _session.SelectionStart;
                         Delete();
 
-                        console.RefreshCaret();
+                        console.RefreshCaret(_session.SelectionStart);
                         window_update_textbox();
                     }
                     break;
                 case SDLK_HOME:
                     CursorHome();
-                    console.RefreshCaret();
+                    console.RefreshCaret(_session.SelectionStart);
                     break;
                 case SDLK_END:
                     CursorEnd();
-                    console.RefreshCaret();
+                    console.RefreshCaret(_session.SelectionStart);
                     break;
                 case SDLK_DELETE:
                 {
@@ -158,7 +159,7 @@ void TextComposition::HandleMessage(const SDL_Event* e)
                     _session.SelectionSize = _session.SelectionStart - startOffset;
                     _session.SelectionStart = startOffset;
                     Delete();
-                    console.RefreshCaret();
+                    console.RefreshCaret(_session.SelectionStart);
                     window_update_textbox();
                     break;
                 }
@@ -167,17 +168,23 @@ void TextComposition::HandleMessage(const SDL_Event* e)
                     break;
                 case SDLK_LEFT:
                     CursorLeft();
-                    console.RefreshCaret();
+                    console.RefreshCaret(_session.SelectionStart);
                     break;
                 case SDLK_RIGHT:
                     CursorRight();
-                    console.RefreshCaret();
+                    console.RefreshCaret(_session.SelectionStart);
+                    break;
+                case SDLK_c:
+                    if ((modifier & KEYBOARD_PRIMARY_MODIFIER) && _session.Length)
+                    {
+                        SDL_SetClipboardText(_session.Buffer);
+                        context_show_error(STR_COPY_INPUT_TO_CLIPBOARD, STR_NONE, {});
+                    }
                     break;
                 case SDLK_v:
                     if ((modifier & KEYBOARD_PRIMARY_MODIFIER) && SDL_HasClipboardText())
                     {
                         utf8* text = SDL_GetClipboardText();
-                        utf8_remove_formatting(text, false);
                         Insert(text);
                         SDL_free(text);
                         window_update_textbox();

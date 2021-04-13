@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (c) 2014-2019 OpenRCT2 developers
+ * Copyright (c) 2014-2020 OpenRCT2 developers
  *
  * For a complete list of all authors, please refer to contributors.md
  * Interested in contributing? Visit https://github.com/OpenRCT2/OpenRCT2
@@ -13,6 +13,8 @@
 #include "../world/Location.hpp"
 #include "Window.h"
 
+#include <limits>
+#include <optional>
 #include <vector>
 
 struct paint_session;
@@ -20,10 +22,9 @@ struct paint_struct;
 struct rct_drawpixelinfo;
 struct Peep;
 struct TileElement;
-struct rct_vehicle;
 struct rct_window;
 union paint_entry;
-union rct_sprite;
+struct SpriteBase;
 
 enum
 {
@@ -46,58 +47,42 @@ enum
     VIEWPORT_FLAG_SEETHROUGH_PATHS = (1 << 16),
     VIEWPORT_FLAG_CLIP_VIEW = (1 << 17),
     VIEWPORT_FLAG_HIGHLIGHT_PATH_ISSUES = (1 << 18),
+    VIEWPORT_FLAG_TRANSPARENT_BACKGROUND = (1 << 19),
 };
 
-enum
+enum class ViewportInteractionItem : uint8_t
 {
-    VIEWPORT_INTERACTION_ITEM_NONE,
-    VIEWPORT_INTERACTION_ITEM_TERRAIN,
-    VIEWPORT_INTERACTION_ITEM_SPRITE,
-    VIEWPORT_INTERACTION_ITEM_RIDE,
-    VIEWPORT_INTERACTION_ITEM_WATER,
-    VIEWPORT_INTERACTION_ITEM_SCENERY,
-    VIEWPORT_INTERACTION_ITEM_FOOTPATH,
-    VIEWPORT_INTERACTION_ITEM_FOOTPATH_ITEM,
-    VIEWPORT_INTERACTION_ITEM_PARK,
-    VIEWPORT_INTERACTION_ITEM_WALL,
-    VIEWPORT_INTERACTION_ITEM_LARGE_SCENERY,
-    VIEWPORT_INTERACTION_ITEM_LABEL,
-    VIEWPORT_INTERACTION_ITEM_BANNER,
-
+    None,
+    Terrain,
+    Entity,
+    Ride,
+    Water,
+    Scenery,
+    Footpath,
+    FootpathItem,
+    ParkEntrance,
+    Wall,
+    LargeScenery,
+    Label,
+    Banner
 };
 
-enum
-{
-    VIEWPORT_INTERACTION_MASK_NONE = 0,
-    VIEWPORT_INTERACTION_MASK_TERRAIN = ~(1 << (VIEWPORT_INTERACTION_ITEM_TERRAIN - 1)),
-    VIEWPORT_INTERACTION_MASK_SPRITE = ~(1 << (VIEWPORT_INTERACTION_ITEM_SPRITE - 1)),
-    VIEWPORT_INTERACTION_MASK_RIDE = ~(1 << (VIEWPORT_INTERACTION_ITEM_RIDE - 1)),
-    VIEWPORT_INTERACTION_MASK_WATER = ~(1 << (VIEWPORT_INTERACTION_ITEM_WATER - 1)),
-    VIEWPORT_INTERACTION_MASK_SCENERY = ~(1 << (VIEWPORT_INTERACTION_ITEM_SCENERY - 1)),
-    VIEWPORT_INTERACTION_MASK_FOOTPATH = ~(1 << (VIEWPORT_INTERACTION_ITEM_FOOTPATH - 1)),
-    VIEWPORT_INTERACTION_MASK_FOOTPATH_ITEM = ~(1 << (VIEWPORT_INTERACTION_ITEM_FOOTPATH_ITEM - 1)),
-    VIEWPORT_INTERACTION_MASK_PARK = ~(1 << (VIEWPORT_INTERACTION_ITEM_PARK - 1)),
-    VIEWPORT_INTERACTION_MASK_WALL = ~(1 << (VIEWPORT_INTERACTION_ITEM_WALL - 1)),
-    VIEWPORT_INTERACTION_MASK_LARGE_SCENERY = ~(1 << (VIEWPORT_INTERACTION_ITEM_LARGE_SCENERY - 1)),
-    VIEWPORT_INTERACTION_MASK_BANNER = ~(1 << (VIEWPORT_INTERACTION_ITEM_BANNER - 2)), // Note the -2 for BANNER
-};
+constexpr uint16_t ViewportInteractionItemAll = std::numeric_limits<uint16_t>::max();
 
-struct viewport_interaction_info
+struct InteractionInfo
 {
-    int32_t type;
-    int32_t x;
-    int32_t y;
+    InteractionInfo() = default;
+    InteractionInfo(const paint_struct* ps);
+    CoordsXY Loc;
     union
     {
-        TileElement* tileElement;
-        rct_sprite* sprite;
-        Peep* peep;
-        rct_vehicle* vehicle;
+        TileElement* Element = nullptr;
+        SpriteBase* Entity;
     };
+    ViewportInteractionItem SpriteType = ViewportInteractionItem::None;
 };
 
 #define MAX_VIEWPORT_COUNT WINDOW_LIMIT_MAX
-#define MAX_ZOOM_LEVEL 3
 
 /**
  * A reference counter for whether something is forcing the grid lines to show. When the counter
@@ -108,21 +93,21 @@ extern uint8_t gShowLandRightsRefCount;
 extern uint8_t gShowConstuctionRightsRefCount;
 
 // rct2: 0x014234BC
-extern rct_viewport g_viewport_list[MAX_VIEWPORT_COUNT];
 extern rct_viewport* g_music_tracking_viewport;
-extern int16_t gSavedViewX;
-extern int16_t gSavedViewY;
-extern uint8_t gSavedViewZoom;
+extern ScreenCoordsXY gSavedView;
+extern ZoomLevel gSavedViewZoom;
 extern uint8_t gSavedViewRotation;
 
 extern paint_entry* gNextFreePaintStruct;
 extern uint8_t gCurrentRotation;
 
 void viewport_init_all();
-void centre_2d_coordinates(int32_t x, int32_t y, int32_t z, int32_t* out_x, int32_t* out_y, rct_viewport* viewport);
+std::optional<ScreenCoordsXY> centre_2d_coordinates(const CoordsXYZ& loc, rct_viewport* viewport);
 void viewport_create(
-    rct_window* w, int32_t x, int32_t y, int32_t width, int32_t height, int32_t zoom, int32_t centre_x, int32_t centre_y,
-    int32_t centre_z, char flags, uint16_t sprite);
+    rct_window* w, const ScreenCoordsXY& screenCoords, int32_t width, int32_t height, int32_t zoom, CoordsXYZ centrePos,
+    char flags, uint16_t sprite);
+void viewport_remove(rct_viewport* viewport);
+void viewports_invalidate(int32_t left, int32_t top, int32_t right, int32_t bottom, int32_t maxZoom = -1);
 void viewport_update_position(rct_window* window);
 void viewport_update_sprite_follow(rct_window* window);
 void viewport_update_smart_sprite_follow(rct_window* window);
@@ -130,17 +115,16 @@ viewport_focus viewport_update_smart_guest_follow(rct_window* window, Peep* peep
 void viewport_update_smart_staff_follow(rct_window* window, Peep* peep);
 void viewport_update_smart_vehicle_follow(rct_window* window);
 void viewport_render(
-    rct_drawpixelinfo* dpi, rct_viewport* viewport, int32_t left, int32_t top, int32_t right, int32_t bottom,
+    rct_drawpixelinfo* dpi, const rct_viewport* viewport, int32_t left, int32_t top, int32_t right, int32_t bottom,
     std::vector<paint_session>* sessions = nullptr);
 void viewport_paint(
-    rct_viewport* viewport, rct_drawpixelinfo* dpi, int16_t left, int16_t top, int16_t right, int16_t bottom,
+    const rct_viewport* viewport, rct_drawpixelinfo* dpi, int16_t left, int16_t top, int16_t right, int16_t bottom,
     std::vector<paint_session>* sessions = nullptr);
 
-void viewport_adjust_for_map_height(int16_t* x, int16_t* y, int16_t* z);
+CoordsXYZ viewport_adjust_for_map_height(const ScreenCoordsXY& startCoords);
 
-LocationXY16 screen_coord_to_viewport_coord(rct_viewport* viewport, uint16_t x, uint16_t y);
-LocationXY16 viewport_coord_to_map_coord(int32_t x, int32_t y, int32_t z);
-void screen_pos_to_map_pos(int16_t* x, int16_t* y, int32_t* direction);
+CoordsXY viewport_coord_to_map_coord(const ScreenCoordsXY& coords, int32_t z);
+std::optional<CoordsXY> screen_pos_to_map_pos(const ScreenCoordsXY& screenCoords, int32_t* direction);
 
 void show_gridlines();
 void hide_gridlines();
@@ -150,32 +134,28 @@ void show_construction_rights();
 void hide_construction_rights();
 void viewport_set_visibility(uint8_t mode);
 
-void get_map_coordinates_from_pos(
-    int32_t screenX, int32_t screenY, int32_t flags, int16_t* x, int16_t* y, int32_t* interactionType,
-    TileElement** tileElement, rct_viewport** viewport);
-void get_map_coordinates_from_pos_window(
-    rct_window* window, int32_t screenX, int32_t screenY, int32_t flags, int16_t* x, int16_t* y, int32_t* interactionType,
-    TileElement** tileElement, rct_viewport** viewport);
+InteractionInfo get_map_coordinates_from_pos(const ScreenCoordsXY& screenCoords, int32_t flags);
+InteractionInfo get_map_coordinates_from_pos_window(rct_window* window, const ScreenCoordsXY& screenCoords, int32_t flags);
 
-int32_t viewport_interaction_get_item_left(int32_t x, int32_t y, viewport_interaction_info* info);
-int32_t viewport_interaction_left_over(int32_t x, int32_t y);
-int32_t viewport_interaction_left_click(int32_t x, int32_t y);
-int32_t viewport_interaction_get_item_right(int32_t x, int32_t y, viewport_interaction_info* info);
-int32_t viewport_interaction_right_over(int32_t x, int32_t y);
-int32_t viewport_interaction_right_click(int32_t x, int32_t y);
+InteractionInfo set_interaction_info_from_paint_session(paint_session* session, uint16_t filter);
+InteractionInfo ViewportInteractionGetItemLeft(const ScreenCoordsXY& screenCoords);
+bool ViewportInteractionLeftOver(const ScreenCoordsXY& screenCoords);
+bool ViewportInteractionLeftClick(const ScreenCoordsXY& screenCoords);
+InteractionInfo ViewportInteractionGetItemRight(const ScreenCoordsXY& screenCoords);
+bool ViewportInteractionRightOver(const ScreenCoordsXY& screenCoords);
+bool ViewportInteractionRightClick(const ScreenCoordsXY& screenCoords);
 
-void sub_68A15E(int32_t screenX, int32_t screenY, int16_t* x, int16_t* y, int32_t* direction, TileElement** tileElement);
-void sub_68B2B7(paint_session* session, int32_t x, int32_t y);
+CoordsXY ViewportInteractionGetTileStartAtCursor(const ScreenCoordsXY& screenCoords);
+void sub_68B2B7(paint_session* session, const CoordsXY& mapCoords);
 
-void viewport_invalidate(rct_viewport* viewport, int32_t left, int32_t top, int32_t right, int32_t bottom);
+void viewport_invalidate(const rct_viewport* viewport, int32_t left, int32_t top, int32_t right, int32_t bottom);
 
-void screen_get_map_xy(int32_t screenX, int32_t screenY, int16_t* x, int16_t* y, rct_viewport** viewport);
-void screen_get_map_xy_with_z(int16_t screenX, int16_t screenY, int16_t z, int16_t* mapX, int16_t* mapY);
-void screen_get_map_xy_quadrant(int16_t screenX, int16_t screenY, int16_t* mapX, int16_t* mapY, uint8_t* quadrant);
-void screen_get_map_xy_quadrant_with_z(
-    int16_t screenX, int16_t screenY, int16_t z, int16_t* mapX, int16_t* mapY, uint8_t* quadrant);
-void screen_get_map_xy_side(int16_t screenX, int16_t screenY, int16_t* mapX, int16_t* mapY, uint8_t* side);
-void screen_get_map_xy_side_with_z(int16_t screenX, int16_t screenY, int16_t z, int16_t* mapX, int16_t* mapY, uint8_t* side);
+std::optional<CoordsXY> screen_get_map_xy(const ScreenCoordsXY& screenCoords, rct_viewport** viewport);
+std::optional<CoordsXY> screen_get_map_xy_with_z(const ScreenCoordsXY& screenCoords, int16_t z);
+std::optional<CoordsXY> screen_get_map_xy_quadrant(const ScreenCoordsXY& screenCoords, uint8_t* quadrant);
+std::optional<CoordsXY> screen_get_map_xy_quadrant_with_z(const ScreenCoordsXY& screenCoords, int16_t z, uint8_t* quadrant);
+std::optional<CoordsXY> screen_get_map_xy_side(const ScreenCoordsXY& screenCoords, uint8_t* side);
+std::optional<CoordsXY> screen_get_map_xy_side_with_z(const ScreenCoordsXY& screenCoords, int16_t z, uint8_t* side);
 
 uint8_t get_current_rotation();
 int16_t get_height_marker_offset();

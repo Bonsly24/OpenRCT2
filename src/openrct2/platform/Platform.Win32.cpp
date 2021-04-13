@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (c) 2014-2019 OpenRCT2 developers
+ * Copyright (c) 2014-2020 OpenRCT2 developers
  *
  * For a complete list of all authors, please refer to contributors.md
  * Interested in contributing? Visit https://github.com/OpenRCT2/OpenRCT2
@@ -13,6 +13,8 @@
 #    include <windows.h>
 
 // Then the rest
+#    include "../Version.h"
+
 #    include <datetimeapi.h>
 #    include <memory>
 #    include <shlobj.h>
@@ -22,16 +24,27 @@
 #        define __USE_SHGETKNOWNFOLDERPATH__
 #        define __USE_GETDATEFORMATEX__
 #    else
-#        define ENABLE_VIRTUAL_TERMINAL_PROCESSING 0x0004
+#        ifndef ENABLE_VIRTUAL_TERMINAL_PROCESSING
+#            define ENABLE_VIRTUAL_TERMINAL_PROCESSING 0x0004
+#        endif
 #    endif
 
 #    include "../OpenRCT2.h"
+#    include "../common.h"
 #    include "../core/Path.hpp"
 #    include "../core/String.hpp"
 #    include "Platform2.h"
 #    include "platform.h"
 
 #    include <iterator>
+
+#    if _WIN32_WINNT < 0x600
+#        define swprintf_s(a, b, c, d, ...) swprintf(a, b, c, ##__VA_ARGS__)
+#    endif
+
+#    if _WIN32_WINNT >= 0x0600
+constexpr wchar_t SOFTWARE_CLASSES[] = L"Software\\Classes";
+#    endif
 
 namespace Platform
 {
@@ -50,9 +63,9 @@ namespace Platform
     std::string GetEnvironmentVariable(const std::string& name)
     {
         std::wstring result;
-        auto wname = String::ToUtf16(name);
+        auto wname = String::ToWideChar(name);
         wchar_t wvalue[256];
-        auto valueSize = GetEnvironmentVariableW(wname.c_str(), wvalue, (DWORD)std::size(wvalue));
+        auto valueSize = GetEnvironmentVariableW(wname.c_str(), wvalue, static_cast<DWORD>(std::size(wvalue)));
         if (valueSize < std::size(wvalue))
         {
             result = wvalue;
@@ -134,17 +147,23 @@ namespace Platform
         }
     }
 
+    std::string GetCurrentExecutableDirectory()
+    {
+        auto exePath = GetCurrentExecutablePath();
+        auto exeDirectory = Path::GetDirectory(exePath);
+        return exeDirectory;
+    }
+
     std::string GetInstallPath()
     {
-        auto path = std::string(gCustomOpenrctDataPath);
+        auto path = std::string(gCustomOpenRCT2DataPath);
         if (!path.empty())
         {
             path = Path::GetAbsolute(path);
         }
         else
         {
-            auto exePath = GetCurrentExecutablePath();
-            auto exeDirectory = Path::GetDirectory(exePath);
+            auto exeDirectory = GetCurrentExecutableDirectory();
             path = Path::Combine(exeDirectory, "data");
         }
         return path;
@@ -157,7 +176,7 @@ namespace Platform
 
     std::string GetDocsPath()
     {
-        return std::string();
+        return GetCurrentExecutableDirectory();
     }
 
     static SYSTEMTIME TimeToSystemTime(std::time_t timestamp)
@@ -165,7 +184,7 @@ namespace Platform
         LONGLONG ll = Int32x32To64(timestamp, 10000000) + 116444736000000000;
 
         FILETIME ft;
-        ft.dwLowDateTime = (DWORD)ll;
+        ft.dwLowDateTime = static_cast<DWORD>(ll);
         ft.dwHighDateTime = ll >> 32;
 
         SYSTEMTIME st;
@@ -179,7 +198,7 @@ namespace Platform
 
 #    ifdef __USE_GETDATEFORMATEX__
         wchar_t date[20];
-        GetDateFormatEx(LOCALE_NAME_USER_DEFAULT, DATE_SHORTDATE, &st, nullptr, date, sizeof(date), nullptr);
+        GetDateFormatEx(LOCALE_NAME_USER_DEFAULT, DATE_SHORTDATE, &st, nullptr, date, (int)std::size(date), nullptr);
         std::string result = String::ToUtf8(std::wstring(date));
 #    else
         char date[20];
@@ -196,7 +215,7 @@ namespace Platform
 
 #    ifdef __USE_GETDATEFORMATEX__
         wchar_t time[20];
-        GetTimeFormatEx(LOCALE_NAME_USER_DEFAULT, 0, &st, nullptr, time, sizeof(time));
+        GetTimeFormatEx(LOCALE_NAME_USER_DEFAULT, 0, &st, nullptr, time, (int)std::size(time));
         std::string result = String::ToUtf8(std::wstring(time));
 #    else
         char time[20];
@@ -213,8 +232,15 @@ namespace Platform
         auto hModule = GetModuleHandleA("ntdll.dll");
         if (hModule != nullptr)
         {
-            using RtlGetVersionPtr = NTSTATUS(WINAPI*)(PRTL_OSVERSIONINFOW);
-            auto fn = (RtlGetVersionPtr)GetProcAddress(hModule, "RtlGetVersion");
+            using RtlGetVersionPtr = long(WINAPI*)(PRTL_OSVERSIONINFOW);
+#    if defined(__GNUC__) && __GNUC__ >= 8
+#        pragma GCC diagnostic push
+#        pragma GCC diagnostic ignored "-Wcast-function-type"
+#    endif
+            auto fn = reinterpret_cast<RtlGetVersionPtr>(GetProcAddress(hModule, "RtlGetVersion"));
+#    if defined(__GNUC__) && __GNUC__ >= 8
+#        pragma GCC diagnostic pop
+#    endif
             if (fn != nullptr)
             {
                 RTL_OSVERSIONINFOW rovi{};
@@ -231,6 +257,17 @@ namespace Platform
             }
         }
         return result;
+    }
+
+    bool IsRunningInWine()
+    {
+        HMODULE ntdllMod = GetModuleHandleW(L"ntdll.dll");
+
+        if (ntdllMod && GetProcAddress(ntdllMod, "wine_get_version"))
+        {
+            return true;
+        }
+        return false;
     }
 
     /**
@@ -314,6 +351,254 @@ namespace Platform
             size = GetModuleFileNameW(hModule, wExePath.get(), wExePathCapacity);
         } while (size >= wExePathCapacity);
         return String::ToUtf8(wExePath.get());
+    }
+
+    utf8* StrDecompToPrecomp(utf8* input)
+    {
+        return input;
+    }
+
+    void SetUpFileAssociations()
+    {
+        // Setup file extensions
+        SetUpFileAssociation(".sc4", "RCT1 Scenario (.sc4)", "Play", "\"%1\"", 0);
+        SetUpFileAssociation(".sc6", "RCT2 Scenario (.sc6)", "Play", "\"%1\"", 0);
+        SetUpFileAssociation(".sv4", "RCT1 Saved Game (.sc4)", "Play", "\"%1\"", 0);
+        SetUpFileAssociation(".sv6", "RCT2 Saved Game (.sv6)", "Play", "\"%1\"", 0);
+        SetUpFileAssociation(".sv7", "RCT Modified Saved Game (.sv7)", "Play", "\"%1\"", 0);
+        SetUpFileAssociation(".sea", "RCTC Saved Game (.sea)", "Play", "\"%1\"", 0);
+        SetUpFileAssociation(".td4", "RCT1 Track Design (.td4)", "Install", "\"%1\"", 0);
+        SetUpFileAssociation(".td6", "RCT2 Track Design (.td6)", "Install", "\"%1\"", 0);
+
+        // Refresh explorer
+        SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, nullptr, nullptr);
+    }
+
+#    if _WIN32_WINNT >= 0x0600
+    static HMODULE _dllModule = nullptr;
+    static HMODULE GetDLLModule()
+    {
+        if (_dllModule == nullptr)
+        {
+            _dllModule = GetModuleHandle(nullptr);
+        }
+        return _dllModule;
+    }
+
+    static std::wstring get_progIdName(std::string_view extension)
+    {
+        auto progIdName = std::string(OPENRCT2_NAME) + std::string(extension);
+        auto progIdNameW = String::ToWideChar(progIdName);
+        return progIdNameW;
+    }
+#    endif
+
+    bool SetUpFileAssociation(
+        std::string_view extension, std::string_view fileTypeText, std::string_view commandText, std::string_view commandArgs,
+        const uint32_t iconIndex)
+    {
+#    if _WIN32_WINNT >= 0x0600
+        wchar_t exePathW[MAX_PATH];
+        wchar_t dllPathW[MAX_PATH];
+
+        [[maybe_unused]] int32_t printResult;
+
+        GetModuleFileNameW(nullptr, exePathW, static_cast<DWORD>(std::size(exePathW)));
+        GetModuleFileNameW(GetDLLModule(), dllPathW, static_cast<DWORD>(std::size(dllPathW)));
+
+        auto extensionW = String::ToWideChar(extension);
+        auto fileTypeTextW = String::ToWideChar(fileTypeText);
+        auto commandTextW = String::ToWideChar(commandText);
+        auto commandArgsW = String::ToWideChar(commandArgs);
+        auto progIdNameW = get_progIdName(extension);
+
+        HKEY hKey = nullptr;
+        HKEY hRootKey = nullptr;
+
+        // [HKEY_CURRENT_USER\Software\Classes]
+        if (RegOpenKeyW(HKEY_CURRENT_USER, SOFTWARE_CLASSES, &hRootKey) != ERROR_SUCCESS)
+        {
+            RegCloseKey(hRootKey);
+            return false;
+        }
+
+        // [hRootKey\.ext]
+        if (RegSetValueW(hRootKey, extensionW.c_str(), REG_SZ, progIdNameW.c_str(), 0) != ERROR_SUCCESS)
+        {
+            RegCloseKey(hRootKey);
+            return false;
+        }
+
+        if (RegCreateKeyW(hRootKey, progIdNameW.c_str(), &hKey) != ERROR_SUCCESS)
+        {
+            RegCloseKey(hKey);
+            RegCloseKey(hRootKey);
+            return false;
+        }
+
+        // [hRootKey\OpenRCT2.ext]
+        if (RegSetValueW(hKey, nullptr, REG_SZ, fileTypeTextW.c_str(), 0) != ERROR_SUCCESS)
+        {
+            RegCloseKey(hKey);
+            RegCloseKey(hRootKey);
+            return false;
+        }
+        // [hRootKey\OpenRCT2.ext\DefaultIcon]
+        wchar_t szIconW[MAX_PATH];
+        printResult = swprintf_s(szIconW, MAX_PATH, L"\"%s\",%d", dllPathW, iconIndex);
+        assert(printResult >= 0);
+        if (RegSetValueW(hKey, L"DefaultIcon", REG_SZ, szIconW, 0) != ERROR_SUCCESS)
+        {
+            RegCloseKey(hKey);
+            RegCloseKey(hRootKey);
+            return false;
+        }
+
+        // [hRootKey\OpenRCT2.sv6\shell]
+        if (RegSetValueW(hKey, L"shell", REG_SZ, L"open", 0) != ERROR_SUCCESS)
+        {
+            RegCloseKey(hKey);
+            RegCloseKey(hRootKey);
+            return false;
+        }
+
+        // [hRootKey\OpenRCT2.sv6\shell\open]
+        if (RegSetValueW(hKey, L"shell\\open", REG_SZ, commandTextW.c_str(), 0) != ERROR_SUCCESS)
+        {
+            RegCloseKey(hKey);
+            RegCloseKey(hRootKey);
+            return false;
+        }
+
+        // [hRootKey\OpenRCT2.sv6\shell\open\command]
+        wchar_t szCommandW[MAX_PATH];
+        printResult = swprintf_s(szCommandW, MAX_PATH, L"\"%s\" %s", exePathW, commandArgsW.c_str());
+        assert(printResult >= 0);
+        if (RegSetValueW(hKey, L"shell\\open\\command", REG_SZ, szCommandW, 0) != ERROR_SUCCESS)
+        {
+            RegCloseKey(hKey);
+            RegCloseKey(hRootKey);
+            return false;
+        }
+#    endif
+        return true;
+    }
+
+    static void RemoveFileAssociation(const utf8* extension)
+    {
+#    if _WIN32_WINNT >= 0x0600
+        // [HKEY_CURRENT_USER\Software\Classes]
+        HKEY hRootKey;
+        if (RegOpenKeyW(HKEY_CURRENT_USER, SOFTWARE_CLASSES, &hRootKey) == ERROR_SUCCESS)
+        {
+            // [hRootKey\.ext]
+            RegDeleteTreeA(hRootKey, extension);
+
+            // [hRootKey\OpenRCT2.ext]
+            auto progIdName = get_progIdName(extension);
+            RegDeleteTreeW(hRootKey, progIdName.c_str());
+
+            RegCloseKey(hRootKey);
+        }
+#    endif
+    }
+
+    void RemoveFileAssociations()
+    {
+        // Remove file extensions
+        RemoveFileAssociation(".sc4");
+        RemoveFileAssociation(".sc6");
+        RemoveFileAssociation(".sv4");
+        RemoveFileAssociation(".sv6");
+        RemoveFileAssociation(".sv7");
+        RemoveFileAssociation(".sea");
+        RemoveFileAssociation(".td4");
+        RemoveFileAssociation(".td6");
+
+        // Refresh explorer
+        SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, nullptr, nullptr);
+    }
+
+    bool HandleSpecialCommandLineArgument(const char* argument)
+    {
+        return false;
+    }
+
+    bool FindApp(const std::string& app, std::string* output)
+    {
+        log_warning("FindApp() not implemented for Windows!");
+        return false;
+    }
+
+    int32_t Execute(const std::string& command, std::string* output)
+    {
+        log_warning("Execute() not implemented for Windows!");
+        return -1;
+    }
+
+    uint64_t GetLastModified(const std::string& path)
+    {
+        uint64_t lastModified = 0;
+        auto pathW = String::ToWideChar(path);
+        auto hFile = CreateFileW(pathW.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, 0, nullptr);
+        if (hFile != INVALID_HANDLE_VALUE)
+        {
+            FILETIME ftCreate, ftAccess, ftWrite;
+            if (GetFileTime(hFile, &ftCreate, &ftAccess, &ftWrite))
+            {
+                lastModified = (static_cast<uint64_t>(ftWrite.dwHighDateTime) << 32ULL)
+                    | static_cast<uint64_t>(ftWrite.dwLowDateTime);
+            }
+            CloseHandle(hFile);
+        }
+        return lastModified;
+    }
+
+    bool ShouldIgnoreCase()
+    {
+        return true;
+    }
+
+    bool IsPathSeparator(char c)
+    {
+        return c == '\\' || c == '/';
+    }
+
+    utf8* GetAbsolutePath(utf8* buffer, size_t bufferSize, const utf8* relativePath)
+    {
+        auto relativePathW = String::ToWideChar(relativePath);
+        wchar_t absolutePathW[MAX_PATH];
+        DWORD length = GetFullPathNameW(
+            relativePathW.c_str(), static_cast<DWORD>(std::size(absolutePathW)), absolutePathW, nullptr);
+        if (length == 0)
+        {
+            return String::Set(buffer, bufferSize, relativePath);
+        }
+        else
+        {
+            auto absolutePath = String::ToUtf8(absolutePathW);
+            String::Set(buffer, bufferSize, absolutePath.c_str());
+            return buffer;
+        }
+    }
+
+    std::string ResolveCasing(const std::string& path, bool fileExists)
+    {
+        std::string result;
+        if (fileExists)
+        {
+            // Windows is case insensitive so it will exist and that is all that matters
+            // for now. We can properly resolve the casing if we ever need to.
+            result = path;
+        }
+        return result;
+    }
+
+    bool RequireNewWindow(bool openGL)
+    {
+        // Windows is apparently able to switch to hardware rendering on the fly although
+        // using the same window in an unaccelerated and accelerated context is unsupported by SDL2
+        return openGL;
     }
 } // namespace Platform
 

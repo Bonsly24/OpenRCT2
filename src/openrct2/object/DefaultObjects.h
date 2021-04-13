@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (c) 2014-2019 OpenRCT2 developers
+ * Copyright (c) 2014-2020 OpenRCT2 developers
  *
  * For a complete list of all authors, please refer to contributors.md
  * Interested in contributing? Visit https://github.com/OpenRCT2/OpenRCT2
@@ -11,4 +11,5 @@
 
 #include "Object.h"
 
-extern const rct_object_entry DefaultSelectedObjects[33];
+extern const std::string_view DefaultSelectedObjects[33];
+extern const std::string_view DesignerSelectedObjects[15];

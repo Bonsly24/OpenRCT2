@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (c) 2014-2019 OpenRCT2 developers
+ * Copyright (c) 2014-2020 OpenRCT2 developers
  *
  * For a complete list of all authors, please refer to contributors.md
  * Interested in contributing? Visit https://github.com/OpenRCT2/OpenRCT2
@@ -10,6 +10,7 @@
 #include "StringTable.h"
 
 #include "../core/IStream.hpp"
+#include "../core/Json.hpp"
 #include "../core/String.hpp"
 #include "../localisation/Language.h"
 #include "../localisation/LanguagePack.h"
@@ -39,7 +40,7 @@ static bool StringIsBlank(const utf8* str)
 {
     for (auto ch = str; *ch != '\0'; ch++)
     {
-        if (!isblank((uint8_t)*ch))
+        if (!isblank(static_cast<uint8_t>(*ch)))
         {
             return false;
         }
@@ -47,41 +48,78 @@ static bool StringIsBlank(const utf8* str)
     return true;
 }
 
-void StringTable::Read(IReadObjectContext* context, IStream* stream, uint8_t id)
+void StringTable::Read(IReadObjectContext* context, OpenRCT2::IStream* stream, ObjectStringID id)
 {
     try
     {
         RCT2LanguageId rct2LanguageId;
-        while ((rct2LanguageId = (RCT2LanguageId)stream->ReadValue<uint8_t>()) != RCT2_LANGUAGE_ID_END)
+        while ((rct2LanguageId = static_cast<RCT2LanguageId>(stream->ReadValue<uint8_t>())) != RCT2LanguageId::End)
         {
-            uint8_t languageId = (rct2LanguageId <= RCT2_LANGUAGE_ID_PORTUGUESE) ? RCT2ToOpenRCT2LanguageId[rct2LanguageId]
-                                                                                 : (uint8_t)LANGUAGE_UNDEFINED;
-            StringTableEntry entry{};
-            entry.Id = id;
-            entry.LanguageId = languageId;
-
+            uint8_t languageId = (EnumValue(rct2LanguageId) <= EnumValue(RCT2LanguageId::Portuguese))
+                ? RCT2ToOpenRCT2LanguageId[EnumValue(rct2LanguageId)]
+                : static_cast<uint8_t>(LANGUAGE_UNDEFINED);
             std::string stringAsWin1252 = stream->ReadStdString();
             auto stringAsUtf8 = rct2_to_utf8(stringAsWin1252, rct2LanguageId);
 
-            if (StringIsBlank(stringAsUtf8.data()))
+            if (!StringIsBlank(stringAsUtf8.data()))
             {
-                entry.LanguageId = LANGUAGE_UNDEFINED;
+                stringAsUtf8 = String::Trim(stringAsUtf8);
+                StringTableEntry entry{};
+                entry.Id = id;
+                entry.LanguageId = languageId;
+                entry.Text = stringAsUtf8;
+                _strings.push_back(std::move(entry));
             }
-            stringAsUtf8 = String::Trim(stringAsUtf8);
-
-            entry.Text = stringAsUtf8;
-            _strings.push_back(entry);
         }
     }
     catch (const std::exception&)
     {
-        context->LogError(OBJECT_ERROR_BAD_STRING_TABLE, "Bad string table.");
+        context->LogError(ObjectError::BadStringTable, "Bad string table.");
         throw;
     }
     Sort();
 }
 
-std::string StringTable::GetString(uint8_t id) const
+ObjectStringID StringTable::ParseStringId(const std::string& s)
+{
+    if (s == "name")
+        return ObjectStringID::NAME;
+    if (s == "description")
+        return ObjectStringID::DESCRIPTION;
+    if (s == "capacity")
+        return ObjectStringID::CAPACITY;
+    if (s == "vehicleName")
+        return ObjectStringID::VEHICLE_NAME;
+    return ObjectStringID::UNKNOWN;
+}
+
+void StringTable::ReadJson(json_t& root)
+{
+    Guard::Assert(root.is_object(), "StringTable::ReadJson expects parameter root to be object");
+
+    // We trust the JSON type of root is object
+    auto jsonStrings = root["strings"];
+
+    for (auto& [key, jsonLanguages] : jsonStrings.items())
+    {
+        auto stringId = ParseStringId(key);
+        if (stringId != ObjectStringID::UNKNOWN)
+        {
+            for (auto& [locale, jsonString] : jsonLanguages.items())
+            {
+                auto langId = language_get_id_from_locale(locale.c_str());
+                if (langId != LANGUAGE_UNDEFINED)
+                {
+                    auto string = Json::GetString(jsonString);
+                    SetString(stringId, langId, string);
+                }
+            }
+        }
+    }
+    Sort();
+}
+
+std::string StringTable::GetString(ObjectStringID id) const
 {
     for (auto& string : _strings)
     {
@@ -93,7 +131,7 @@ std::string StringTable::GetString(uint8_t id) const
     return std::string();
 }
 
-std::string StringTable::GetString(uint8_t language, uint8_t id) const
+std::string StringTable::GetString(uint8_t language, ObjectStringID id) const
 {
     for (auto& string : _strings)
     {
@@ -105,13 +143,13 @@ std::string StringTable::GetString(uint8_t language, uint8_t id) const
     return std::string();
 }
 
-void StringTable::SetString(uint8_t id, uint8_t language, const std::string& text)
+void StringTable::SetString(ObjectStringID id, uint8_t language, const std::string& text)
 {
     StringTableEntry entry;
     entry.Id = id;
     entry.LanguageId = language;
     entry.Text = text;
-    _strings.push_back(entry);
+    _strings.push_back(std::move(entry));
 }
 
 void StringTable::Sort()

@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (c) 2014-2019 OpenRCT2 developers
+ * Copyright (c) 2014-2020 OpenRCT2 developers
  *
  * For a complete list of all authors, please refer to contributors.md
  * Interested in contributing? Visit https://github.com/OpenRCT2/OpenRCT2
@@ -15,8 +15,9 @@
 #include <openrct2/localisation/Localisation.h>
 #include <openrct2/sprites.h>
 
-#define INITIAL_WIDTH 500
-#define INITIAL_HEIGHT 350
+static constexpr const rct_string_id WINDOW_TITLE = STR_VIEWPORT_NO;
+static constexpr const int32_t WH = 500;
+static constexpr const int32_t WW = 350;
 
 // clang-format off
 enum {
@@ -31,15 +32,12 @@ enum {
 };
 
 static rct_widget window_viewport_widgets[] = {
-    { WWT_FRAME,            0,  0,  0,  0,  0,  0xFFFFFFFF,         STR_NONE                },  // panel / background
-    { WWT_CAPTION,          0,  1,  0,  1,  14, STR_VIEWPORT_NO,    STR_WINDOW_TITLE_TIP    },  // title bar
-    { WWT_CLOSEBOX,         0,  0,  0,  2,  13, STR_CLOSE_X,        STR_CLOSE_WINDOW_TIP    },  // close x button
-    { WWT_RESIZE,           1,  0,  0,  14, 0,  0xFFFFFFFF,         STR_NONE                },  // resize
-    { WWT_VIEWPORT,         0,  3,  0,  17, 0,  0xFFFFFFFF,         STR_NONE                },  // viewport
-
-    { WWT_FLATBTN,          0,  0,  0,  17, 40, SPR_G2_ZOOM_IN,     STR_ZOOM_IN_TIP         },  // zoom in
-    { WWT_FLATBTN,          0,  0,  0,  41, 64, SPR_G2_ZOOM_OUT,    STR_ZOOM_OUT_TIP        },  // zoom out
-    { WWT_FLATBTN,          0,  0,  0,  65, 88, SPR_LOCATE,         STR_LOCATE_SUBJECT_TIP  },  // locate
+    WINDOW_SHIM(WINDOW_TITLE, WW, WH),
+    MakeWidget({      0, 14}, { WW - 1, WH - 1}, WindowWidgetType::Resize,   WindowColour::Secondary                                         ), // resize
+    MakeWidget({      3, 17}, {WW - 26, WH - 3}, WindowWidgetType::Viewport, WindowColour::Primary                                           ), // viewport
+    MakeWidget({WW - 25, 17}, {     24,     24}, WindowWidgetType::FlatBtn,  WindowColour::Primary  , SPR_G2_ZOOM_IN,  STR_ZOOM_IN_TIP       ), // zoom in
+    MakeWidget({WW - 25, 41}, {     24,     24}, WindowWidgetType::FlatBtn,  WindowColour::Primary  , SPR_G2_ZOOM_OUT, STR_ZOOM_OUT_TIP      ), // zoom out
+    MakeWidget({WW - 25, 65}, {     24,     24}, WindowWidgetType::FlatBtn,  WindowColour::Primary  , SPR_LOCATE,      STR_LOCATE_SUBJECT_TIP), // locate
     { WIDGETS_END },
 };
 
@@ -49,36 +47,14 @@ static void window_viewport_update(rct_window *w);
 static void window_viewport_invalidate(rct_window *w);
 static void window_viewport_paint(rct_window *w, rct_drawpixelinfo *dpi);
 
-static rct_window_event_list window_viewport_events = {
-    nullptr,
-    window_viewport_mouseup,
-    window_viewport_resize,
-    nullptr,
-    nullptr,
-    nullptr,
-    window_viewport_update,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    window_viewport_invalidate,
-    window_viewport_paint,
-    nullptr
-};
+static rct_window_event_list window_viewport_events([](auto& events)
+{
+    events.mouse_up = &window_viewport_mouseup;
+    events.resize = &window_viewport_resize;
+    events.update = &window_viewport_update;
+    events.invalidate = &window_viewport_invalidate;
+    events.paint = &window_viewport_paint;
+});
 // clang-format on
 
 static int32_t _viewportNumber = 1;
@@ -88,21 +64,20 @@ static int32_t _viewportNumber = 1;
  */
 rct_window* window_viewport_open()
 {
-    rct_window* w = window_create_auto_pos(INITIAL_WIDTH, INITIAL_HEIGHT, &window_viewport_events, WC_VIEWPORT, WF_RESIZABLE);
+    rct_window* w = WindowCreateAutoPos(WW, WH, &window_viewport_events, WC_VIEWPORT, WF_RESIZABLE);
     w->widgets = window_viewport_widgets;
     w->enabled_widgets = (1 << WIDX_CLOSE) | (1 << WIDX_ZOOM_IN) | (1 << WIDX_ZOOM_OUT) | (1 << WIDX_LOCATE);
     w->number = _viewportNumber++;
 
     // Create viewport
-    viewport_create(w, w->x, w->y, w->width, w->height, 0, 128 * 32, 128 * 32, 0, 1, SPRITE_INDEX_NULL);
+    viewport_create(w, w->windowPos, w->width, w->height, 0, TileCoordsXYZ(128, 128, 0).ToCoordsXYZ(), 1, SPRITE_INDEX_NULL);
     rct_window* mainWindow = window_get_main();
     if (mainWindow != nullptr)
     {
         rct_viewport* mainViewport = mainWindow->viewport;
-        int32_t x = mainViewport->view_x + (mainViewport->view_width / 2);
-        int32_t y = mainViewport->view_y + (mainViewport->view_height / 2);
-        w->saved_view_x = x - (w->viewport->view_width / 2);
-        w->saved_view_y = y - (w->viewport->view_height / 2);
+        int32_t x = mainViewport->viewPos.x + (mainViewport->view_width / 2);
+        int32_t y = mainViewport->viewPos.y + (mainViewport->view_height / 2);
+        w->savedViewPos = { x - (w->viewport->view_width / 2), y - (w->viewport->view_height / 2) };
     }
 
     w->viewport->flags |= VIEWPORT_FLAG_SOUND_ON;
@@ -124,7 +99,6 @@ static void window_viewport_anchor_border_widgets(rct_window* w)
 static void window_viewport_mouseup(rct_window* w, rct_widgetindex widgetIndex)
 {
     rct_window* mainWindow;
-    int16_t x, y;
 
     switch (widgetIndex)
     {
@@ -132,27 +106,26 @@ static void window_viewport_mouseup(rct_window* w, rct_widgetindex widgetIndex)
             window_close(w);
             break;
         case WIDX_ZOOM_IN:
-            if (w->viewport != nullptr && w->viewport->zoom > 0)
+            if (w->viewport != nullptr && w->viewport->zoom > ZoomLevel::min())
             {
                 w->viewport->zoom--;
-                window_invalidate(w);
+                w->Invalidate();
             }
             break;
         case WIDX_ZOOM_OUT:
-            if (w->viewport != nullptr && w->viewport->zoom < 3)
+            if (w->viewport != nullptr && w->viewport->zoom < ZoomLevel::max())
             {
                 w->viewport->zoom++;
-                window_invalidate(w);
+                w->Invalidate();
             }
             break;
         case WIDX_LOCATE:
             mainWindow = window_get_main();
             if (mainWindow != nullptr)
             {
-                get_map_coordinates_from_pos(
-                    w->x + (w->width / 2), w->y + (w->height / 2), VIEWPORT_INTERACTION_MASK_NONE, &x, &y, nullptr, nullptr,
-                    nullptr);
-                window_scroll_to_location(mainWindow, x, y, tile_element_height(x, y));
+                auto info = get_map_coordinates_from_pos(
+                    { w->windowPos.x + (w->width / 2), w->windowPos.y + (w->height / 2) }, ViewportInteractionItemAll);
+                window_scroll_to_location(mainWindow, { info.Loc, tile_element_height(info.Loc) });
             }
             break;
     }
@@ -175,7 +148,7 @@ static void window_viewport_update(rct_window* w)
     if (w->viewport->flags != mainWindow->viewport->flags)
     {
         w->viewport->flags = mainWindow->viewport->flags;
-        window_invalidate(w);
+        w->Invalidate();
     }
 
     // Not sure how to invalidate part of the viewport that has changed, this will have to do for now
@@ -202,26 +175,25 @@ static void window_viewport_invalidate(rct_window* w)
     }
 
     // Set title
-    set_format_arg(0, uint32_t, w->number);
+    Formatter::Common().Add<uint32_t>(w->number);
 
     // Set disabled widgets
     w->disabled_widgets = 0;
-    if (viewport->zoom == 0)
+    if (viewport->zoom == ZoomLevel::min())
         w->disabled_widgets |= 1 << WIDX_ZOOM_IN;
-    if (viewport->zoom >= 3)
+    if (viewport->zoom >= ZoomLevel::max())
         w->disabled_widgets |= 1 << WIDX_ZOOM_OUT;
 
-    viewport->x = w->x + viewportWidget->left;
-    viewport->y = w->y + viewportWidget->top;
-    viewport->width = viewportWidget->right - viewportWidget->left;
-    viewport->height = viewportWidget->bottom - viewportWidget->top;
-    viewport->view_width = viewport->width << viewport->zoom;
-    viewport->view_height = viewport->height << viewport->zoom;
+    viewport->pos = w->windowPos + ScreenCoordsXY{ viewportWidget->left, viewportWidget->top };
+    viewport->width = viewportWidget->width();
+    viewport->height = viewportWidget->height();
+    viewport->view_width = viewport->width * viewport->zoom;
+    viewport->view_height = viewport->height * viewport->zoom;
 }
 
 static void window_viewport_paint(rct_window* w, rct_drawpixelinfo* dpi)
 {
-    window_draw_widgets(w, dpi);
+    WindowDrawWidgets(w, dpi);
 
     // Draw viewport
     if (w->viewport != nullptr)

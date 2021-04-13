@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (c) 2014-2019 OpenRCT2 developers
+ * Copyright (c) 2014-2020 OpenRCT2 developers
  *
  * For a complete list of all authors, please refer to contributors.md
  * Interested in contributing? Visit https://github.com/OpenRCT2/OpenRCT2
@@ -14,6 +14,9 @@
 
 #include <cstdio>
 #include <ctime>
+#include <optional>
+#include <type_traits>
+#include <vector>
 
 int32_t squaredmetres_to_squaredfeet(int32_t squaredMetres);
 int32_t metres_to_feet(int32_t metres);
@@ -35,6 +38,7 @@ bool sse41_available();
 bool avx2_available();
 
 int32_t bitscanforward(int32_t source);
+int32_t bitscanforward(int64_t source);
 void bitcount_init();
 int32_t bitcount(uint32_t source);
 int32_t strcicmp(char const* a, char const* b);
@@ -50,10 +54,9 @@ char* strcasestr(const char* haystack, const char* needle);
 bool utf8_is_bom(const char* str);
 bool str_is_null_or_empty(const char* str);
 
-void util_srand(int32_t source);
 uint32_t util_rand();
 
-uint8_t* util_zlib_deflate(const uint8_t* data, size_t data_in_size, size_t* data_out_size);
+std::optional<std::vector<uint8_t>> util_zlib_deflate(const uint8_t* data, size_t data_in_size);
 uint8_t* util_zlib_inflate(uint8_t* data, size_t data_in_size, size_t* data_out_size);
 bool util_gzip_compress(FILE* source, FILE* dest);
 
@@ -67,5 +70,21 @@ float flerp(float a, float b, float t);
 uint8_t soft_light(uint8_t a, uint8_t b);
 
 size_t strcatftime(char* buffer, size_t bufferSize, const char* format, const struct tm* tp);
+
+template<typename T>[[nodiscard]] constexpr uint64_t EnumToFlag(T v)
+{
+    static_assert(std::is_enum_v<T>);
+    return 1ULL << static_cast<std::underlying_type_t<T>>(v);
+}
+
+template<typename... T>[[nodiscard]] constexpr uint64_t EnumsToFlags(T... types)
+{
+    return (EnumToFlag(types) | ...);
+}
+
+template<typename TEnum> constexpr auto EnumValue(TEnum enumerator) noexcept
+{
+    return static_cast<std::underlying_type_t<TEnum>>(enumerator);
+}
 
 #endif

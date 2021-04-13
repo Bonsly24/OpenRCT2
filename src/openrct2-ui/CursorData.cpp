@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (c) 2014-2019 OpenRCT2 developers
+ * Copyright (c) 2014-2020 OpenRCT2 developers
  *
  * For a complete list of all authors, please refer to contributors.md
  * Interested in contributing? Visit https://github.com/OpenRCT2/OpenRCT2
@@ -11,9 +11,9 @@
 
 #include <openrct2/interface/Cursors.h>
 
-// clang-format off
 namespace OpenRCT2::Ui
 {
+    // clang-format off
     static constexpr const CursorData BlankCursorData =
     {
         { 0, 0 }, { 0 }, { 0 }
@@ -650,14 +650,14 @@ namespace OpenRCT2::Ui
         &HandClosedDownCursorData,  // CURSOR_HAND_CLOSED
     };
 
-    const CursorData * CursorRepository::GetCursorData(CURSOR_ID cursorId)
+    // clang-format on
+    const CursorData* CursorRepository::GetCursorData(CursorID cursorId)
     {
-        const CursorData * result = nullptr;
-        if (cursorId >= 0 && cursorId < CURSOR_COUNT)
+        const CursorData* result = nullptr;
+        if (cursorId != CursorID::Undefined && cursorId != CursorID::Count)
         {
-            result = RawCursorData[cursorId];
+            result = RawCursorData[EnumValue(cursorId)];
         }
         return result;
     }
-}
-// clang-format on
+} // namespace OpenRCT2::Ui

@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (c) 2014-2019 OpenRCT2 developers
+ * Copyright (c) 2014-2020 OpenRCT2 developers
  *
  * For a complete list of all authors, please refer to contributors.md
  * Interested in contributing? Visit https://github.com/OpenRCT2/OpenRCT2
@@ -11,6 +11,7 @@
 #define _PLATFORM_H_
 
 #include "../common.h"
+#include "../config/Config.h"
 
 #include <string>
 #include <time.h>
@@ -20,7 +21,6 @@
 #endif // __ANDROID__
 
 struct TTFFontDescriptor;
-struct rct2_install_info;
 
 #ifndef MAX_PATH
 #    define MAX_PATH 260
@@ -63,15 +63,15 @@ struct rct2_time
     uint8_t second;
 };
 
-enum FILEDIALOG_TYPE
+enum class FileDialogType : uint8_t
 {
-    FD_OPEN,
-    FD_SAVE
+    Open,
+    Save
 };
 
 struct file_dialog_desc
 {
-    uint8_t type;
+    FileDialogType type;
     const utf8* title;
     const utf8* initial_directory;
     const utf8* default_filename;
@@ -88,18 +88,14 @@ void platform_toggle_windowed_mode();
 void platform_refresh_video(bool recreate_window);
 void platform_get_date_utc(rct2_date* out_date);
 void platform_get_time_utc(rct2_time* out_time);
-void platform_get_date_local(rct2_date* out_date);
-void platform_get_time_local(rct2_time* out_time);
 
 // Platform specific definitions
-bool platform_file_exists(const utf8* path);
 bool platform_directory_exists(const utf8* path);
 bool platform_original_game_data_exists(const utf8* path);
-bool platform_original_rct1_data_exists(const utf8* path);
 time_t platform_file_get_modified_time(const utf8* path);
 bool platform_ensure_directory_exists(const utf8* path);
 bool platform_directory_delete(const utf8* path);
-utf8* platform_get_absolute_path(const utf8* relative_path, const utf8* base_path);
+std::string platform_get_absolute_path(const utf8* relative_path, const utf8* base_path);
 bool platform_lock_single_instance();
 bool platform_place_string_on_clipboard(utf8* target);
 
@@ -111,21 +107,22 @@ bool platform_file_move(const utf8* srcPath, const utf8* dstPath);
 bool platform_file_delete(const utf8* path);
 uint32_t platform_get_ticks();
 void platform_sleep(uint32_t ms);
-void platform_get_openrct_data_path(utf8* outPath, size_t outSize);
+void platform_get_openrct2_data_path(utf8* outPath, size_t outSize);
 void platform_get_user_directory(utf8* outPath, const utf8* subDirectory, size_t outSize);
-utf8* platform_get_username();
+std::string platform_get_username();
 bool platform_open_common_file_dialog(utf8* outFilename, file_dialog_desc* desc, size_t outSize);
 utf8* platform_open_directory_browser(const utf8* title);
-uint8_t platform_get_locale_currency();
-uint8_t platform_get_currency_value(const char* currencyCode);
+CurrencyType platform_get_locale_currency();
+CurrencyType platform_get_currency_value(const char* currencyCode);
 uint16_t platform_get_locale_language();
-uint8_t platform_get_locale_measurement_format();
-uint8_t platform_get_locale_temperature_format();
+MeasurementFormat platform_get_locale_measurement_format();
+TemperatureUnit platform_get_locale_temperature_format();
 uint8_t platform_get_locale_date_format();
 bool platform_process_is_elevated();
 bool platform_get_steam_path(utf8* outPath, size_t outSize);
 std::string platform_get_rct1_steam_dir();
 std::string platform_get_rct2_steam_dir();
+std::string platform_sanitise_filename(const std::string&);
 
 #ifndef NO_TTF
 bool platform_get_font_path(TTFFontDescriptor* font, utf8* buffer, size_t size);
@@ -151,18 +148,11 @@ void core_init();
 #    undef CreateWindow
 #    undef GetMessage
 
-void platform_setup_file_associations();
-void platform_remove_file_associations();
 bool platform_setup_uri_protocol();
 // This function cannot be marked as 'static', even though it may seem to be,
 // as it requires external linkage, which 'static' prevents
-__declspec(dllexport) int32_t StartOpenRCT(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int32_t nCmdShow);
+__declspec(dllexport) int32_t StartOpenRCT2(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int32_t nCmdShow);
 #endif // _WIN32
-
-#if defined(__APPLE__) && defined(__MACH__)
-void macos_disallow_automatic_window_tabbing();
-utf8* macos_str_decomp_to_precomp(utf8* input);
-#endif
 
 #ifdef __ANDROID__
 class AndroidClassLoader

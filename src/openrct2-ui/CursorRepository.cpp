@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (c) 2014-2019 OpenRCT2 developers
+ * Copyright (c) 2014-2020 OpenRCT2 developers
  *
  * For a complete list of all authors, please refer to contributors.md
  * Interested in contributing? Visit https://github.com/OpenRCT2/OpenRCT2
@@ -20,22 +20,22 @@ using namespace OpenRCT2::Ui;
 CursorRepository::~CursorRepository()
 {
     _scaledCursors.clear();
-    _currentCursor = CURSOR_UNDEFINED;
+    _currentCursor = CursorID::Undefined;
     _currentCursorScale = 1;
 }
 
 void CursorRepository::LoadCursors()
 {
     SetCursorScale(static_cast<uint8_t>(round(gConfigGeneral.window_scale)));
-    SetCurrentCursor(CURSOR_ARROW);
+    SetCurrentCursor(CursorID::Arrow);
 }
 
-CURSOR_ID CursorRepository::GetCurrentCursor()
+CursorID CursorRepository::GetCurrentCursor()
 {
     return _currentCursor;
 }
 
-void CursorRepository::SetCurrentCursor(CURSOR_ID cursorId)
+void CursorRepository::SetCurrentCursor(CursorID cursorId)
 {
     if (_currentCursor != cursorId)
     {
@@ -92,7 +92,7 @@ SDL_Cursor* CursorRepository::Create(const CursorData* cursorInfo, uint8_t scale
 {
     SDL_Cursor* cursor;
 
-    auto integer_scale = (int)round(scale);
+    auto integer_scale = static_cast<int>(round(scale));
 
     auto data = scaleDataArray(cursorInfo->Data, CURSOR_BIT_WIDTH, CURSOR_HEIGHT, static_cast<size_t>(integer_scale));
     auto mask = scaleDataArray(cursorInfo->Mask, CURSOR_BIT_WIDTH, CURSOR_HEIGHT, static_cast<size_t>(integer_scale));
@@ -120,13 +120,13 @@ void CursorRepository::GenerateScaledCursorSetHolder(uint8_t scale)
 {
     if (_scaledCursors.find(scale) == _scaledCursors.end())
     {
-        std::function<SDL_Cursor*(CURSOR_ID)> cursorGenerator = [this, scale](CURSOR_ID cursorId) {
+        std::function<SDL_Cursor*(CursorID)> cursorGenerator = [this, scale](CursorID cursorId) {
             switch (cursorId)
             {
                 // We can't scale the system cursors, but they should be appropriately scaled anyway
-                case CURSOR_ARROW:
+                case CursorID::Arrow:
                     return SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_ARROW);
-                case CURSOR_HAND_POINT:
+                case CursorID::HandPoint:
                     return SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_HAND);
                 default:
                     return this->Create(GetCursorData(cursorId), scale);

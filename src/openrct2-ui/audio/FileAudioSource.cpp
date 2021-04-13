@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (c) 2014-2019 OpenRCT2 developers
+ * Copyright (c) 2014-2020 OpenRCT2 developers
  *
  * For a complete list of all authors, please refer to contributors.md
  * Interested in contributing? Visit https://github.com/OpenRCT2/OpenRCT2
@@ -30,17 +30,17 @@ namespace OpenRCT2::Audio
         uint64_t _dataLength = 0;
 
     public:
-        ~FileAudioSource()
+        ~FileAudioSource() override
         {
             Unload();
         }
 
-        uint64_t GetLength() const override
+        [[nodiscard]] uint64_t GetLength() const override
         {
             return _dataLength;
         }
 
-        AudioFormat GetFormat() const override
+        [[nodiscard]] AudioFormat GetFormat() const override
         {
             return _format;
         }
@@ -51,7 +51,7 @@ namespace OpenRCT2::Audio
             int64_t currentPosition = SDL_RWtell(_rw);
             if (currentPosition != -1)
             {
-                size_t bytesToRead = (size_t)std::min<uint64_t>(len, _dataLength - offset);
+                size_t bytesToRead = static_cast<size_t>(std::min<uint64_t>(len, _dataLength - offset));
                 int64_t dataOffset = _dataBegin + offset;
                 if (currentPosition != dataOffset)
                 {
@@ -107,7 +107,7 @@ namespace OpenRCT2::Audio
 
             uint64_t chunkStart = SDL_RWtell(rw);
 
-            WaveFormat waveFormat;
+            WaveFormat waveFormat{};
             SDL_RWread(rw, &waveFormat, sizeof(waveFormat), 1);
             SDL_RWseek(rw, chunkStart + fmtChunkSize, RW_SEEK_SET);
             if (waveFormat.encoding != pcmformat)
@@ -144,7 +144,7 @@ namespace OpenRCT2::Audio
         }
 
     private:
-        uint32_t FindChunk(SDL_RWops* rw, uint32_t wantedId)
+        static uint32_t FindChunk(SDL_RWops* rw, uint32_t wantedId)
         {
             uint32_t subchunkId = SDL_ReadLE32(rw);
             uint32_t subchunkSize = SDL_ReadLE32(rw);
@@ -202,4 +202,34 @@ namespace OpenRCT2::Audio
         }
         return source;
     }
+
+    IAudioSource* AudioSource::CreateStreamFromWAV(std::unique_ptr<IStream> stream)
+    {
+        auto rw = new SDL_RWops();
+        *rw = {};
+        rw->type = SDL_RWOPS_UNKNOWN;
+        rw->hidden.unknown.data1 = stream.release();
+        rw->seek = [](SDL_RWops* ctx, Sint64 offset, int whence) {
+            auto ptr = static_cast<IStream*>(ctx->hidden.unknown.data1);
+            ptr->Seek(offset, whence);
+            return static_cast<Sint64>(ptr->GetPosition());
+        };
+        rw->read = [](SDL_RWops* ctx, void* buf, size_t size, size_t maxnum) {
+            auto ptr = static_cast<IStream*>(ctx->hidden.unknown.data1);
+            return static_cast<size_t>(ptr->TryRead(buf, size * maxnum) / size);
+        };
+        rw->size = [](SDL_RWops* ctx) {
+            auto ptr = static_cast<IStream*>(ctx->hidden.unknown.data1);
+            return static_cast<Sint64>(ptr->GetLength());
+        };
+        rw->close = [](SDL_RWops* ctx) {
+            auto ptr = static_cast<IStream*>(ctx->hidden.unknown.data1);
+            delete ptr;
+            ctx->hidden.unknown.data1 = nullptr;
+            delete ctx;
+            return 0;
+        };
+        return CreateStreamFromWAV(rw);
+    }
+
 } // namespace OpenRCT2::Audio

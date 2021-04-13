@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (c) 2014-2019 OpenRCT2 developers
+ * Copyright (c) 2014-2020 OpenRCT2 developers
  *
  * For a complete list of all authors, please refer to contributors.md
  * Interested in contributing? Visit https://github.com/OpenRCT2/OpenRCT2
@@ -19,15 +19,6 @@
 #include <vector>
 
 struct rct_drawpixelinfo;
-struct rct_palette;
-
-struct PaletteBGRA
-{
-    uint8_t Blue{};
-    uint8_t Green{};
-    uint8_t Red{};
-    uint8_t Alpha{};
-};
 
 enum class IMAGE_FORMAT
 {
@@ -47,7 +38,7 @@ struct Image
 
     // Data
     std::vector<uint8_t> Pixels;
-    std::unique_ptr<rct_palette> Palette;
+    std::unique_ptr<GamePalette> Palette;
     uint32_t Stride{};
 };
 
@@ -55,10 +46,10 @@ using ImageReaderFunc = std::function<Image(std::istream&, IMAGE_FORMAT)>;
 
 namespace Imaging
 {
-    IMAGE_FORMAT GetImageFormatFromPath(const std::string_view& path);
-    Image ReadFromFile(const std::string_view& path, IMAGE_FORMAT format = IMAGE_FORMAT::AUTOMATIC);
+    IMAGE_FORMAT GetImageFormatFromPath(std::string_view path);
+    Image ReadFromFile(std::string_view path, IMAGE_FORMAT format = IMAGE_FORMAT::AUTOMATIC);
     Image ReadFromBuffer(const std::vector<uint8_t>& buffer, IMAGE_FORMAT format = IMAGE_FORMAT::AUTOMATIC);
-    void WriteToFile(const std::string_view& path, const Image& image, IMAGE_FORMAT format = IMAGE_FORMAT::AUTOMATIC);
+    void WriteToFile(std::string_view path, const Image& image, IMAGE_FORMAT format = IMAGE_FORMAT::AUTOMATIC);
 
     void SetReader(IMAGE_FORMAT format, ImageReaderFunc impl);
 } // namespace Imaging

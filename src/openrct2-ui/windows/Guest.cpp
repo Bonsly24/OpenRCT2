@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (c) 2014-2019 OpenRCT2 developers
+ * Copyright (c) 2014-2020 OpenRCT2 developers
  *
  * For a complete list of all authors, please refer to contributors.md
  * Interested in contributing? Visit https://github.com/OpenRCT2/OpenRCT2
@@ -12,8 +12,10 @@
 #include <openrct2-ui/windows/Window.h>
 #include <openrct2/Context.h>
 #include <openrct2/Game.h>
+#include <openrct2/GameState.h>
 #include <openrct2/Input.h>
-#include <openrct2/actions/GuestSetFlagsAction.hpp>
+#include <openrct2/actions/GuestSetFlagsAction.h>
+#include <openrct2/actions/PeepPickupAction.h>
 #include <openrct2/config/Config.h>
 #include <openrct2/localisation/Localisation.h>
 #include <openrct2/management/Marketing.h>
@@ -29,6 +31,10 @@
 #include <openrct2/world/Footpath.h>
 #include <openrct2/world/Park.h>
 
+static constexpr const rct_string_id WINDOW_TITLE = STR_STRINGID;
+static constexpr const int32_t WH = 157;
+static constexpr const int32_t WW = 192;
+
 // clang-format off
 enum WINDOW_GUEST_PAGE {
     WINDOW_GUEST_OVERVIEW,
@@ -36,7 +42,8 @@ enum WINDOW_GUEST_PAGE {
     WINDOW_GUEST_RIDES,
     WINDOW_GUEST_FINANCE,
     WINDOW_GUEST_THOUGHTS,
-    WINDOW_GUEST_INVENTORY
+    WINDOW_GUEST_INVENTORY,
+    WINDOW_GUEST_DEBUG
 };
 
 enum WINDOW_GUEST_WIDGET_IDX {
@@ -50,8 +57,9 @@ enum WINDOW_GUEST_WIDGET_IDX {
     WIDX_TAB_4,
     WIDX_TAB_5,
     WIDX_TAB_6,
+    WIDX_TAB_7,
 
-    WIDX_MARQUEE = 10,
+    WIDX_MARQUEE = 11,
     WIDX_VIEWPORT,
     WIDX_ACTION_LBL,
     WIDX_PICKUP,
@@ -59,101 +67,65 @@ enum WINDOW_GUEST_WIDGET_IDX {
     WIDX_LOCATE,
     WIDX_TRACK,
 
-    WIDX_RIDE_SCROLL = 10
+    WIDX_RIDE_SCROLL = 11
 };
 
 validate_global_widx(WC_PEEP, WIDX_PICKUP);
 
+static constexpr int32_t TabWidth = 30;
+
+#define MAIN_GUEST_WIDGETS \
+    WINDOW_SHIM(WINDOW_TITLE, WW, WH), \
+    MakeWidget({  0, 43}, {192, 114}, WindowWidgetType::Resize, WindowColour::Secondary), /* Resize */ \
+    MakeTab   ({  3, 17}, STR_SHOW_GUEST_VIEW_TIP                        ), /* Tab 1 */ \
+    MakeTab   ({ 34, 17}, STR_SHOW_GUEST_NEEDS_TIP                       ), /* Tab 2 */ \
+    MakeTab   ({ 65, 17}, STR_SHOW_GUEST_VISITED_RIDES_TIP               ), /* Tab 3 */ \
+    MakeTab   ({ 96, 17}, STR_SHOW_GUEST_FINANCE_TIP                     ), /* Tab 4 */ \
+    MakeTab   ({127, 17}, STR_SHOW_GUEST_THOUGHTS_TIP                    ), /* Tab 5 */ \
+    MakeTab   ({158, 17}, STR_SHOW_GUEST_ITEMS_TIP                       ), /* Tab 6 */ \
+    MakeTab   ({189, 17}, STR_DEBUG_TIP                                  )  /* Tab 7 */
+
 static rct_widget window_guest_overview_widgets[] = {
-    {WWT_FRAME,    0, 0,   191, 0,   156, 0xFFFFFFFF, STR_NONE},                            // Panel / Background
-    {WWT_CAPTION,  0, 1,   190, 1,   14,  STR_STRINGID,         STR_WINDOW_TITLE_TIP},      // Title
-    {WWT_CLOSEBOX, 0, 179, 189, 2,   13,  STR_CLOSE_X,          STR_CLOSE_WINDOW_TIP},      // Close x button
-    {WWT_RESIZE,   1, 0,   191, 43,  156, 0xFFFFFFFF, STR_NONE},                            // Resize
-    {WWT_TAB,      1, 3,   33,  17,  43,  IMAGE_TYPE_REMAP | SPR_TAB, STR_SHOW_GUEST_VIEW_TIP},           // Tab 1
-    {WWT_TAB,      1, 73,  64,  17,  43,  IMAGE_TYPE_REMAP | SPR_TAB, STR_SHOW_GUEST_NEEDS_TIP},          // Tab 2
-    {WWT_TAB,      1, 65,  95,  17,  43,  IMAGE_TYPE_REMAP | SPR_TAB, STR_SHOW_GUEST_VISITED_RIDES_TIP},  // Tab 3
-    {WWT_TAB,      1, 96,  126, 17,  43,  IMAGE_TYPE_REMAP | SPR_TAB, STR_SHOW_GUEST_FINANCE_TIP},        // Tab 4
-    {WWT_TAB,      1, 127, 157, 17,  43,  IMAGE_TYPE_REMAP | SPR_TAB, STR_SHOW_GUEST_THOUGHTS_TIP},       // Tab 5
-    {WWT_TAB,      1, 158, 188, 17,  43,  IMAGE_TYPE_REMAP | SPR_TAB, STR_SHOW_GUEST_ITEMS_TIP},          // Tab 6
-    {WWT_LABEL_CENTRED,    1, 3,   166, 45,  56,  0xFFFFFFFF, STR_NONE},                            // Label Thought marquee
-    {WWT_VIEWPORT,         1, 3,   166, 57,  143, 0xFFFFFFFF, STR_NONE},                            // Viewport
-    {WWT_LABEL_CENTRED,    1, 3,   166, 144, 154, 0xFFFFFFFF, STR_NONE},                            // Label Action
-    {WWT_FLATBTN,  1, 167, 190, 45,  68,  SPR_PICKUP_BTN,       STR_PICKUP_TIP},                    // Pickup Button
-    {WWT_FLATBTN,  1, 167, 190, 69,  92,  SPR_RENAME,           STR_NAME_GUEST_TIP},                // Rename Button
-    {WWT_FLATBTN,  1, 167, 190, 93,  116, SPR_LOCATE,           STR_LOCATE_SUBJECT_TIP},            // Locate Button
-    {WWT_FLATBTN,  1, 167, 190, 117, 140, SPR_TRACK_PEEP,       STR_TOGGLE_GUEST_TRACKING_TIP},     // Track Button
+    MAIN_GUEST_WIDGETS,
+    MakeWidget({  3,  45}, {164, 12}, WindowWidgetType::LabelCentred, WindowColour::Secondary                                               ), // Label Thought marquee
+    MakeWidget({  3,  57}, {164, 87}, WindowWidgetType::Viewport,      WindowColour::Secondary                                               ), // Viewport
+    MakeWidget({  3, 144}, {164, 11}, WindowWidgetType::LabelCentred, WindowColour::Secondary                                               ), // Label Action
+    MakeWidget({167,  45}, { 24, 24}, WindowWidgetType::FlatBtn,       WindowColour::Secondary, SPR_PICKUP_BTN, STR_PICKUP_TIP               ), // Pickup Button
+    MakeWidget({167,  69}, { 24, 24}, WindowWidgetType::FlatBtn,       WindowColour::Secondary, SPR_RENAME,     STR_NAME_GUEST_TIP           ), // Rename Button
+    MakeWidget({167,  93}, { 24, 24}, WindowWidgetType::FlatBtn,       WindowColour::Secondary, SPR_LOCATE,     STR_LOCATE_SUBJECT_TIP       ), // Locate Button
+    MakeWidget({167, 117}, { 24, 24}, WindowWidgetType::FlatBtn,       WindowColour::Secondary, SPR_TRACK_PEEP, STR_TOGGLE_GUEST_TRACKING_TIP), // Track Button
     { WIDGETS_END },
 };
 
 static rct_widget window_guest_stats_widgets[] = {
-    {WWT_FRAME,    0, 0,   191, 0,  156, STR_NONE, STR_NONE},
-    {WWT_CAPTION,  0, 1,   190, 1,  14, STR_STRINGID,         STR_WINDOW_TITLE_TIP},
-    {WWT_CLOSEBOX, 0, 179, 189, 2,  13, STR_CLOSE_X,          STR_CLOSE_WINDOW_TIP},
-    {WWT_RESIZE,   1, 0,   191, 43, 156, STR_NONE, STR_NONE},
-    {WWT_TAB,      1, 3,   33,  17, 43, IMAGE_TYPE_REMAP | SPR_TAB, STR_SHOW_GUEST_VIEW_TIP},
-    {WWT_TAB,      1, 34,  64,  17, 43, IMAGE_TYPE_REMAP | SPR_TAB, STR_SHOW_GUEST_NEEDS_TIP},
-    {WWT_TAB,      1, 65,  95,  17, 43, IMAGE_TYPE_REMAP | SPR_TAB, STR_SHOW_GUEST_VISITED_RIDES_TIP},
-    {WWT_TAB,      1, 96,  126, 17, 43, IMAGE_TYPE_REMAP | SPR_TAB, STR_SHOW_GUEST_FINANCE_TIP},
-    {WWT_TAB,      1, 127, 157, 17, 43, IMAGE_TYPE_REMAP | SPR_TAB, STR_SHOW_GUEST_THOUGHTS_TIP},
-    {WWT_TAB,      1, 158, 188, 17, 43, IMAGE_TYPE_REMAP | SPR_TAB, STR_SHOW_GUEST_ITEMS_TIP},
-    {WIDGETS_END},
+    MAIN_GUEST_WIDGETS,
+    { WIDGETS_END },
 };
 
 static rct_widget window_guest_rides_widgets[] = {
-    {WWT_FRAME,    0, 0,   191, 0,  156, STR_NONE, STR_NONE},
-    {WWT_CAPTION,  0, 1,   190, 1,  14,  STR_STRINGID,         STR_WINDOW_TITLE_TIP},
-    {WWT_CLOSEBOX, 0, 179, 189, 2,  13,  STR_CLOSE_X,          STR_CLOSE_WINDOW_TIP},
-    {WWT_RESIZE,   1, 0,   191, 43, 156, STR_NONE, STR_NONE},
-    {WWT_TAB,      1, 3,   33,  17, 43,  IMAGE_TYPE_REMAP | SPR_TAB, STR_SHOW_GUEST_VIEW_TIP},
-    {WWT_TAB,      1, 34,  64,  17, 43,  IMAGE_TYPE_REMAP | SPR_TAB, STR_SHOW_GUEST_NEEDS_TIP},
-    {WWT_TAB,      1, 65,  95,  17, 43,  IMAGE_TYPE_REMAP | SPR_TAB, STR_SHOW_GUEST_VISITED_RIDES_TIP},
-    {WWT_TAB,      1, 96,  126, 17, 43,  IMAGE_TYPE_REMAP | SPR_TAB, STR_SHOW_GUEST_FINANCE_TIP},
-    {WWT_TAB,      1, 127, 157, 17, 43,  IMAGE_TYPE_REMAP | SPR_TAB, STR_SHOW_GUEST_THOUGHTS_TIP},
-    {WWT_TAB,      1, 158, 188, 17, 43,  IMAGE_TYPE_REMAP | SPR_TAB, STR_SHOW_GUEST_ITEMS_TIP},
-    {WWT_SCROLL,   1, 3,   188, 57, 143, SCROLL_VERTICAL,  STR_NONE},
-    {WIDGETS_END},
+    MAIN_GUEST_WIDGETS,
+    MakeWidget({3, 57}, {186, 87}, WindowWidgetType::Scroll, WindowColour::Secondary, SCROLL_VERTICAL),
+    { WIDGETS_END },
 };
 
 static rct_widget window_guest_finance_widgets[] = {
-    {WWT_FRAME,    0, 0,   191, 0,  156, STR_NONE, STR_NONE},
-    {WWT_CAPTION,  0, 1,   190, 1,  14, STR_STRINGID,         STR_WINDOW_TITLE_TIP},
-    {WWT_CLOSEBOX, 0, 179, 189, 2,  13, STR_CLOSE_X,          STR_CLOSE_WINDOW_TIP},
-    {WWT_RESIZE,   1, 0,   191, 43, 156, STR_NONE, STR_NONE},
-    {WWT_TAB,      1, 3,   33,  17, 43, IMAGE_TYPE_REMAP | SPR_TAB, STR_SHOW_GUEST_VIEW_TIP},
-    {WWT_TAB,      1, 34,  64,  17, 43, IMAGE_TYPE_REMAP | SPR_TAB, STR_SHOW_GUEST_NEEDS_TIP},
-    {WWT_TAB,      1, 65,  95,  17, 43, IMAGE_TYPE_REMAP | SPR_TAB, STR_SHOW_GUEST_VISITED_RIDES_TIP},
-    {WWT_TAB,      1, 96,  126, 17, 43, IMAGE_TYPE_REMAP | SPR_TAB, STR_SHOW_GUEST_FINANCE_TIP},
-    {WWT_TAB,      1, 127, 157, 17, 43, IMAGE_TYPE_REMAP | SPR_TAB, STR_SHOW_GUEST_THOUGHTS_TIP},
-    {WWT_TAB,      1, 158, 188, 17, 43, IMAGE_TYPE_REMAP | SPR_TAB, STR_SHOW_GUEST_ITEMS_TIP},
-    {WIDGETS_END},
+    MAIN_GUEST_WIDGETS,
+    { WIDGETS_END },
 };
 
 static rct_widget window_guest_thoughts_widgets[] = {
-    {WWT_FRAME,    0, 0,   191, 0,  156, STR_NONE, STR_NONE},
-    {WWT_CAPTION,  0, 1,   190, 1,  14, STR_STRINGID,         STR_WINDOW_TITLE_TIP},
-    {WWT_CLOSEBOX, 0, 179, 189, 2,  13, STR_CLOSE_X,          STR_CLOSE_WINDOW_TIP},
-    {WWT_RESIZE,   1, 0,   191, 43, 156, STR_NONE, STR_NONE},
-    {WWT_TAB,      1, 3,   33,  17, 43, IMAGE_TYPE_REMAP | SPR_TAB, STR_SHOW_GUEST_VIEW_TIP},
-    {WWT_TAB,      1, 34,  64,  17, 43, IMAGE_TYPE_REMAP | SPR_TAB, STR_SHOW_GUEST_NEEDS_TIP},
-    {WWT_TAB,      1, 65,  95,  17, 43, IMAGE_TYPE_REMAP | SPR_TAB, STR_SHOW_GUEST_VISITED_RIDES_TIP},
-    {WWT_TAB,      1, 96,  126, 17, 43, IMAGE_TYPE_REMAP | SPR_TAB, STR_SHOW_GUEST_FINANCE_TIP},
-    {WWT_TAB,      1, 127, 157, 17, 43, IMAGE_TYPE_REMAP | SPR_TAB, STR_SHOW_GUEST_THOUGHTS_TIP},
-    {WWT_TAB,      1, 158, 188, 17, 43, IMAGE_TYPE_REMAP | SPR_TAB, STR_SHOW_GUEST_ITEMS_TIP},
-    {WIDGETS_END},
+    MAIN_GUEST_WIDGETS,
+    { WIDGETS_END },
 };
 
 static rct_widget window_guest_inventory_widgets[] = {
-    {WWT_FRAME,    0, 0,   191, 0,  156, STR_NONE, STR_NONE},
-    {WWT_CAPTION,  0, 1,   190, 1,  14, STR_STRINGID,         STR_WINDOW_TITLE_TIP},
-    {WWT_CLOSEBOX, 0, 179, 189, 2,  13, STR_CLOSE_X,          STR_CLOSE_WINDOW_TIP},
-    {WWT_RESIZE,   1, 0,   191, 43, 156, STR_NONE, STR_NONE},
-    {WWT_TAB,      1, 3,   33,  17, 43, IMAGE_TYPE_REMAP | SPR_TAB, STR_SHOW_GUEST_VIEW_TIP},
-    {WWT_TAB,      1, 34,  64,  17, 43, IMAGE_TYPE_REMAP | SPR_TAB, STR_SHOW_GUEST_NEEDS_TIP},
-    {WWT_TAB,      1, 65,  95,  17, 43, IMAGE_TYPE_REMAP | SPR_TAB, STR_SHOW_GUEST_VISITED_RIDES_TIP},
-    {WWT_TAB,      1, 96,  126, 17, 43, IMAGE_TYPE_REMAP | SPR_TAB, STR_SHOW_GUEST_FINANCE_TIP},
-    {WWT_TAB,      1, 127, 157, 17, 43, IMAGE_TYPE_REMAP | SPR_TAB, STR_SHOW_GUEST_THOUGHTS_TIP},
-    {WWT_TAB,      1, 158, 188, 17, 43, IMAGE_TYPE_REMAP | SPR_TAB, STR_SHOW_GUEST_ITEMS_TIP},
-    {WIDGETS_END},
+    MAIN_GUEST_WIDGETS,
+    { WIDGETS_END },
+};
+
+static rct_widget window_guest_debug_widgets[] = {
+    MAIN_GUEST_WIDGETS,
+    { WIDGETS_END },
 };
 
 // 0x981D0C
@@ -163,12 +135,15 @@ static rct_widget *window_guest_page_widgets[] = {
     window_guest_rides_widgets,
     window_guest_finance_widgets,
     window_guest_thoughts_widgets,
-    window_guest_inventory_widgets
+    window_guest_inventory_widgets,
+    window_guest_debug_widgets
 };
 
 static void window_guest_set_page(rct_window* w, int32_t page);
 static void window_guest_disable_widgets(rct_window* w);
 static void window_guest_viewport_init(rct_window* w);
+static void window_guest_common_resize(rct_window* w);
+static void window_guest_common_invalidate(rct_window* w);
 
 static void window_guest_overview_close(rct_window *w);
 static void window_guest_overview_resize(rct_window *w);
@@ -178,227 +153,107 @@ static void window_guest_overview_invalidate(rct_window *w);
 static void window_guest_overview_viewport_rotate(rct_window *w);
 static void window_guest_overview_update(rct_window* w);
 static void window_guest_overview_text_input(rct_window *w, rct_widgetindex widgetIndex, char *text);
-static void window_guest_overview_tool_update(rct_window* w, rct_widgetindex widgetIndex, int32_t x, int32_t y);
-static void window_guest_overview_tool_down(rct_window* w, rct_widgetindex widgetIndex, int32_t x, int32_t y);
+static void window_guest_overview_tool_update(rct_window* w, rct_widgetindex widgetIndex, const ScreenCoordsXY& screenCoords);
+static void window_guest_overview_tool_down(rct_window* w, rct_widgetindex widgetIndex, const ScreenCoordsXY& screenCoords);
 static void window_guest_overview_tool_abort(rct_window *w, rct_widgetindex widgetIndex);
 
 static void window_guest_mouse_up(rct_window *w, rct_widgetindex widgetIndex);
-static void window_guest_unknown_05(rct_window *w);
 
-static void window_guest_stats_resize(rct_window *w);
 static void window_guest_stats_update(rct_window *w);
-static void window_guest_stats_invalidate(rct_window *w);
 static void window_guest_stats_paint(rct_window *w, rct_drawpixelinfo *dpi);
 
-static void window_guest_rides_resize(rct_window *w);
 static void window_guest_rides_update(rct_window *w);
 static void window_guest_rides_scroll_get_size(rct_window *w, int32_t scrollIndex, int32_t *width, int32_t *height);
-static void window_guest_rides_scroll_mouse_down(rct_window *w, int32_t scrollIndex, int32_t x, int32_t y);
-static void window_guest_rides_scroll_mouse_over(rct_window *w, int32_t scrollIndex, int32_t x, int32_t y);
+static void window_guest_rides_scroll_mouse_down(rct_window *w, int32_t scrollIndex, const ScreenCoordsXY& screenCoords);
+static void window_guest_rides_scroll_mouse_over(rct_window *w, int32_t scrollIndex, const ScreenCoordsXY& screenCoords);
 static void window_guest_rides_invalidate(rct_window *w);
 static void window_guest_rides_paint(rct_window *w, rct_drawpixelinfo *dpi);
 static void window_guest_rides_scroll_paint(rct_window *w, rct_drawpixelinfo *dpi, int32_t scrollIndex);
 
-static void window_guest_finance_resize(rct_window *w);
 static void window_guest_finance_update(rct_window *w);
-static void window_guest_finance_invalidate(rct_window *w);
 static void window_guest_finance_paint(rct_window *w, rct_drawpixelinfo *dpi);
 
-static void window_guest_thoughts_resize(rct_window *w);
 static void window_guest_thoughts_update(rct_window *w);
-static void window_guest_thoughts_invalidate(rct_window *w);
 static void window_guest_thoughts_paint(rct_window *w, rct_drawpixelinfo *dpi);
 
-static void window_guest_inventory_resize(rct_window *w);
 static void window_guest_inventory_update(rct_window *w);
-static void window_guest_inventory_invalidate(rct_window *w);
 static void window_guest_inventory_paint(rct_window *w, rct_drawpixelinfo *dpi);
 
-static rct_window_event_list window_guest_overview_events = {
-    window_guest_overview_close,
-    window_guest_overview_mouse_up,
-    window_guest_overview_resize,
-    nullptr,
-    nullptr,
-    nullptr,
-    window_guest_overview_update,
-    nullptr,
-    nullptr,
-    window_guest_overview_tool_update,
-    window_guest_overview_tool_down,
-    nullptr,
-    nullptr,
-    window_guest_overview_tool_abort,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    window_guest_overview_text_input,
-    window_guest_overview_viewport_rotate,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    window_guest_overview_invalidate,
-    window_guest_overview_paint,
-    nullptr
-};
+static void window_guest_debug_update(rct_window *w);
+static void window_guest_debug_paint(rct_window *w, rct_drawpixelinfo* dpi);
 
-static rct_window_event_list window_guest_stats_events = {
-    nullptr,
-    window_guest_mouse_up,
-    window_guest_stats_resize,
-    nullptr,
-    nullptr,
-    window_guest_unknown_05,
-    window_guest_stats_update,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    window_guest_stats_invalidate,
-    window_guest_stats_paint,
-    nullptr
-};
+static rct_window_event_list window_guest_overview_events([](auto& events)
+{
+    events.close = &window_guest_overview_close;
+    events.mouse_up = &window_guest_overview_mouse_up;
+    events.resize = &window_guest_overview_resize;
+    events.update = &window_guest_overview_update;
+    events.tool_update = &window_guest_overview_tool_update;
+    events.tool_down = &window_guest_overview_tool_down;
+    events.tool_abort = &window_guest_overview_tool_abort;
+    events.text_input = &window_guest_overview_text_input;
+    events.viewport_rotate = &window_guest_overview_viewport_rotate;
+    events.invalidate = &window_guest_overview_invalidate;
+    events.paint = &window_guest_overview_paint;
+});
 
-static rct_window_event_list window_guest_rides_events = {
-    nullptr,
-    window_guest_mouse_up,
-    window_guest_rides_resize,
-    nullptr,
-    nullptr,
-    window_guest_unknown_05,
-    window_guest_rides_update,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    window_guest_rides_scroll_get_size,
-    window_guest_rides_scroll_mouse_down,
-    nullptr,
-    window_guest_rides_scroll_mouse_over,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    window_guest_rides_invalidate,
-    window_guest_rides_paint,
-    window_guest_rides_scroll_paint
-};
+static rct_window_event_list window_guest_stats_events([](auto& events)
+{
+    events.mouse_up = &window_guest_mouse_up;
+    events.resize = &window_guest_common_resize;
+    events.update = &window_guest_stats_update;
+    events.invalidate = &window_guest_common_invalidate;
+    events.paint = &window_guest_stats_paint;
+});
 
-static rct_window_event_list window_guest_finance_events = {
-    nullptr,
-    window_guest_mouse_up,
-    window_guest_finance_resize,
-    nullptr,
-    nullptr,
-    window_guest_unknown_05,
-    window_guest_finance_update,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    window_guest_finance_invalidate,
-    window_guest_finance_paint,
-    nullptr
-};
+static rct_window_event_list window_guest_rides_events([](auto& events)
+{
+    events.mouse_up = &window_guest_mouse_up;
+    events.resize = &window_guest_common_resize;
+    events.update = &window_guest_rides_update;
+    events.get_scroll_size = &window_guest_rides_scroll_get_size;
+    events.scroll_mousedown = &window_guest_rides_scroll_mouse_down;
+    events.scroll_mouseover = &window_guest_rides_scroll_mouse_over;
+    events.invalidate = &window_guest_rides_invalidate;
+    events.paint = &window_guest_rides_paint;
+    events.scroll_paint = &window_guest_rides_scroll_paint;
+});
 
-static rct_window_event_list window_guest_thoughts_events = {
-    nullptr,
-    window_guest_mouse_up,
-    window_guest_thoughts_resize,
-    nullptr,
-    nullptr,
-    window_guest_unknown_05,
-    window_guest_thoughts_update,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    window_guest_thoughts_invalidate,
-    window_guest_thoughts_paint,
-    nullptr
-};
+static rct_window_event_list window_guest_finance_events([](auto& events)
+{
+    events.mouse_up = &window_guest_mouse_up;
+    events.resize = &window_guest_common_resize;
+    events.update = &window_guest_finance_update;
+    events.invalidate = &window_guest_common_invalidate;
+    events.paint = &window_guest_finance_paint;
+});
 
-static rct_window_event_list window_guest_inventory_events = {
-    nullptr,
-    window_guest_mouse_up,
-    window_guest_inventory_resize,
-    nullptr,
-    nullptr,
-    window_guest_unknown_05,
-    window_guest_inventory_update,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    window_guest_inventory_invalidate,
-    window_guest_inventory_paint,
-    nullptr
-};
+static rct_window_event_list window_guest_thoughts_events([](auto& events)
+{
+    events.mouse_up = &window_guest_mouse_up;
+    events.resize = &window_guest_common_resize;
+    events.update = &window_guest_thoughts_update;
+    events.invalidate = &window_guest_common_invalidate;
+    events.paint = &window_guest_thoughts_paint;
+});
+
+static rct_window_event_list window_guest_inventory_events([](auto& events)
+{
+    events.mouse_up = &window_guest_mouse_up;
+    events.resize = &window_guest_common_resize;
+    events.update = &window_guest_inventory_update;
+    events.invalidate = &window_guest_common_invalidate;
+    events.paint = &window_guest_inventory_paint;
+});
+
+static rct_window_event_list window_guest_debug_events([](auto& events)
+{
+    events.mouse_up = &window_guest_mouse_up;
+    events.resize = &window_guest_common_resize;
+    events.update = &window_guest_debug_update;
+    events.invalidate = &window_guest_common_invalidate;
+    events.paint = &window_guest_debug_paint;
+});
 
 // 0x981D24
 static rct_window_event_list *window_guest_page_events[] = {
@@ -407,7 +262,8 @@ static rct_window_event_list *window_guest_page_events[] = {
     &window_guest_rides_events,
     &window_guest_finance_events,
     &window_guest_thoughts_events,
-    &window_guest_inventory_events
+    &window_guest_inventory_events,
+    &window_guest_debug_events
 };
 
 void window_guest_set_colours();
@@ -421,6 +277,7 @@ static constexpr const uint32_t window_guest_page_enabled_widgets[] = {
     (1 << WIDX_TAB_4) |
     (1 << WIDX_TAB_5) |
     (1 << WIDX_TAB_6) |
+    (1 << WIDX_TAB_7) |
     (1 << WIDX_RENAME)|
     (1 << WIDX_PICKUP)|
     (1 << WIDX_LOCATE)|
@@ -432,7 +289,8 @@ static constexpr const uint32_t window_guest_page_enabled_widgets[] = {
     (1 << WIDX_TAB_3) |
     (1 << WIDX_TAB_4) |
     (1 << WIDX_TAB_5) |
-    (1 << WIDX_TAB_6),
+    (1 << WIDX_TAB_6) |
+    (1 << WIDX_TAB_7),
 
     (1 << WIDX_CLOSE) |
     (1 << WIDX_TAB_1) |
@@ -441,6 +299,7 @@ static constexpr const uint32_t window_guest_page_enabled_widgets[] = {
     (1 << WIDX_TAB_4) |
     (1 << WIDX_TAB_5) |
     (1 << WIDX_TAB_6) |
+    (1 << WIDX_TAB_7) |
     (1 << WIDX_RIDE_SCROLL),
 
     (1 << WIDX_CLOSE) |
@@ -449,7 +308,8 @@ static constexpr const uint32_t window_guest_page_enabled_widgets[] = {
     (1 << WIDX_TAB_3) |
     (1 << WIDX_TAB_4) |
     (1 << WIDX_TAB_5) |
-    (1 << WIDX_TAB_6),
+    (1 << WIDX_TAB_6) |
+    (1 << WIDX_TAB_7),
 
     (1 << WIDX_CLOSE) |
     (1 << WIDX_TAB_1) |
@@ -457,7 +317,8 @@ static constexpr const uint32_t window_guest_page_enabled_widgets[] = {
     (1 << WIDX_TAB_3) |
     (1 << WIDX_TAB_4) |
     (1 << WIDX_TAB_5) |
-    (1 << WIDX_TAB_6),
+    (1 << WIDX_TAB_6) |
+    (1 << WIDX_TAB_7),
 
     (1 << WIDX_CLOSE) |
     (1 << WIDX_TAB_1) |
@@ -465,9 +326,40 @@ static constexpr const uint32_t window_guest_page_enabled_widgets[] = {
     (1 << WIDX_TAB_3) |
     (1 << WIDX_TAB_4) |
     (1 << WIDX_TAB_5) |
-    (1 << WIDX_TAB_6)
+    (1 << WIDX_TAB_6) |
+    (1 << WIDX_TAB_7),
+
+    (1 << WIDX_CLOSE) |
+    (1 << WIDX_TAB_1) |
+    (1 << WIDX_TAB_2) |
+    (1 << WIDX_TAB_3) |
+    (1 << WIDX_TAB_4) |
+    (1 << WIDX_TAB_5) |
+    (1 << WIDX_TAB_6) |
+    (1 << WIDX_TAB_7)
+};
+
+static constexpr const rct_size16 window_guest_page_sizes[][2] = {
+    { 192, 159, 500, 450 },     // WINDOW_GUEST_OVERVIEW
+    { 192, 180, 192, 180 },     // WINDOW_GUEST_STATS
+    { 192, 180, 500, 400 },     // WINDOW_GUEST_RIDES
+    { 210, 148, 210, 148 },     // WINDOW_GUEST_FINANCE
+    { 192, 159, 500, 450 },     // WINDOW_GUEST_THOUGHTS
+    { 192, 159, 500, 450 },     // WINDOW_GUEST_INVENTORY
+    { 192, 171, 192, 171 }      // WINDOW_GUEST_DEBUG
 };
 // clang-format on
+
+static Guest* GetGuest(rct_window* w)
+{
+    auto guest = GetEntity<Guest>(w->number);
+    if (guest == nullptr)
+    {
+        window_close(w);
+        return nullptr;
+    }
+    return guest;
+}
 
 /**
  *
@@ -476,7 +368,11 @@ static constexpr const uint32_t window_guest_page_enabled_widgets[] = {
  */
 rct_window* window_guest_open(Peep* peep)
 {
-    if (peep->type == PEEP_TYPE_STAFF)
+    if (peep == nullptr)
+    {
+        return nullptr;
+    }
+    if (peep->Is<Staff>())
     {
         return window_staff_open(peep);
     }
@@ -486,7 +382,11 @@ rct_window* window_guest_open(Peep* peep)
     window = window_bring_to_front_by_number(WC_PEEP, peep->sprite_index);
     if (window == nullptr)
     {
-        window = window_create_auto_pos(192, 157, &window_guest_overview_events, WC_PEEP, WF_RESIZABLE);
+        int32_t windowWidth = 192;
+        if (gConfigGeneral.debugging_tools)
+            windowWidth += TabWidth;
+
+        window = WindowCreateAutoPos(windowWidth, 157, &window_guest_overview_events, WC_PEEP, WF_RESIZABLE);
         window->widgets = window_guest_overview_widgets;
         window->enabled_widgets = window_guest_page_enabled_widgets[0];
         window->number = peep->sprite_index;
@@ -497,7 +397,7 @@ rct_window* window_guest_open(Peep* peep)
         window->picked_peep_frame = 0;
         window->highlighted_item = 0;
         window_guest_disable_widgets(window);
-        window->min_width = 192;
+        window->min_width = windowWidth;
         window->min_height = 157;
         window->max_width = 500;
         window->max_height = 450;
@@ -508,7 +408,7 @@ rct_window* window_guest_open(Peep* peep)
     }
 
     window->page = 0;
-    window_invalidate(window);
+    window->Invalidate();
 
     window->widgets = window_guest_page_widgets[WINDOW_GUEST_OVERVIEW];
     window->enabled_widgets = window_guest_page_enabled_widgets[WINDOW_GUEST_OVERVIEW];
@@ -517,10 +417,60 @@ rct_window* window_guest_open(Peep* peep)
     window->pressed_widgets = 0;
 
     window_guest_disable_widgets(window);
-    window_init_scroll_widgets(window);
+    WindowInitScrollWidgets(window);
     window_guest_viewport_init(window);
 
     return window;
+}
+
+static void window_guest_common_resize(rct_window* w)
+{
+    // Get page specific min and max size
+    int32_t minWidth = window_guest_page_sizes[w->page][0].width;
+    int32_t minHeight = window_guest_page_sizes[w->page][0].height;
+    int32_t maxWidth = window_guest_page_sizes[w->page][1].width;
+    int32_t maxHeight = window_guest_page_sizes[w->page][1].height;
+
+    // Ensure min size is large enough for all tabs to fit
+    for (int32_t i = WIDX_TAB_1; i <= WIDX_TAB_7; i++)
+    {
+        if (!(w->disabled_widgets & (1ULL << i)))
+        {
+            minWidth = std::max(minWidth, w->widgets[i].right + 3);
+        }
+    }
+    maxWidth = std::max(minWidth, maxWidth);
+
+    window_set_resize(w, minWidth, minHeight, maxWidth, maxHeight);
+}
+
+static void window_guest_common_invalidate(rct_window* w)
+{
+    if (window_guest_page_widgets[w->page] != w->widgets)
+    {
+        w->widgets = window_guest_page_widgets[w->page];
+        WindowInitScrollWidgets(w);
+    }
+
+    w->pressed_widgets |= 1ULL << (w->page + WIDX_TAB_1);
+
+    const auto peep = GetGuest(w);
+    if (peep == nullptr)
+    {
+        return;
+    }
+    auto ft = Formatter::Common();
+    peep->FormatNameTo(ft);
+
+    w->widgets[WIDX_BACKGROUND].right = w->width - 1;
+    w->widgets[WIDX_BACKGROUND].bottom = w->height - 1;
+    w->widgets[WIDX_PAGE_BACKGROUND].right = w->width - 1;
+    w->widgets[WIDX_PAGE_BACKGROUND].bottom = w->height - 1;
+    w->widgets[WIDX_TITLE].right = w->width - 2;
+    w->widgets[WIDX_CLOSE].left = w->width - 13;
+    w->widgets[WIDX_CLOSE].right = w->width - 3;
+
+    window_align_tabs(w, WIDX_TAB_1, WIDX_TAB_7);
 }
 
 /**
@@ -530,23 +480,31 @@ rct_window* window_guest_open(Peep* peep)
  */
 void window_guest_disable_widgets(rct_window* w)
 {
-    Peep* peep = &get_sprite(w->number)->peep;
+    const auto peep = GetGuest(w);
+    if (peep == nullptr)
+    {
+        return;
+    }
     uint64_t disabled_widgets = 0;
 
-    if (peep_can_be_picked_up(peep))
+    if (peep->CanBePickedUp())
     {
         if (w->disabled_widgets & (1 << WIDX_PICKUP))
-            window_invalidate(w);
+            w->Invalidate();
     }
     else
     {
         disabled_widgets = (1 << WIDX_PICKUP);
         if (!(w->disabled_widgets & (1 << WIDX_PICKUP)))
-            window_invalidate(w);
+            w->Invalidate();
     }
     if (gParkFlags & PARK_FLAGS_NO_MONEY)
     {
         disabled_widgets |= (1 << WIDX_TAB_4); // Disable finance tab if no money
+    }
+    if (!gConfigGeneral.debugging_tools)
+    {
+        disabled_widgets |= (1 << WIDX_TAB_7); // Disable debug tab when debug tools not turned on
     }
     w->disabled_widgets = disabled_widgets;
 }
@@ -575,25 +533,20 @@ void window_guest_overview_resize(rct_window* w)
 
     widget_invalidate(w, WIDX_MARQUEE);
 
-    window_set_resize(w, 192, 159, 500, 450);
+    window_guest_common_resize(w);
 
-    rct_viewport* view = w->viewport;
-
-    if (view)
+    auto viewport = w->viewport;
+    if (viewport != nullptr)
     {
-        if ((w->width - 30) == view->width)
+        auto reqViewportWidth = w->width - 30;
+        auto reqViewportHeight = w->height - 72;
+        if (viewport->width != reqViewportWidth || viewport->height != reqViewportHeight)
         {
-            if ((w->height - 72) == view->height)
-            {
-                window_guest_viewport_init(w);
-                return;
-            }
+            viewport->width = reqViewportWidth;
+            viewport->height = reqViewportHeight;
+            viewport->view_width = viewport->width / viewport->zoom;
+            viewport->view_height = viewport->height / viewport->zoom;
         }
-        uint8_t zoom_amount = 1 << view->zoom;
-        view->width = w->width - 30;
-        view->height = w->height - 72;
-        view->view_width = view->width / zoom_amount;
-        view->view_height = view->height / zoom_amount;
     }
     window_guest_viewport_init(w);
 }
@@ -604,7 +557,11 @@ void window_guest_overview_resize(rct_window* w)
  */
 void window_guest_overview_mouse_up(rct_window* w, rct_widgetindex widgetIndex)
 {
-    Peep* peep = GET_PEEP(w->number);
+    const auto peep = GetGuest(w);
+    if (peep == nullptr)
+    {
+        return;
+    }
 
     switch (widgetIndex)
     {
@@ -617,27 +574,43 @@ void window_guest_overview_mouse_up(rct_window* w, rct_widgetindex widgetIndex)
         case WIDX_TAB_4:
         case WIDX_TAB_5:
         case WIDX_TAB_6:
+        case WIDX_TAB_7:
             window_guest_set_page(w, widgetIndex - WIDX_TAB_1);
             break;
         case WIDX_PICKUP:
-            if (!peep_can_be_picked_up(peep))
+        {
+            if (!peep->CanBePickedUp())
             {
                 return;
             }
             w->picked_peep_old_x = peep->x;
-            game_command_callback = game_command_callback_pickup_guest;
-            game_do_command(w->number, GAME_COMMAND_FLAG_APPLY, 0, 0, GAME_COMMAND_PICKUP_GUEST, 0, 0);
-            break;
+            CoordsXYZ nullLoc{};
+            nullLoc.setNull();
+            PeepPickupAction pickupAction{ PeepPickupType::Pickup, w->number, nullLoc, network_get_current_player_id() };
+            pickupAction.SetCallback([peepnum = w->number](const GameAction* ga, const GameActions::Result* result) {
+                if (result->Error != GameActions::Status::Ok)
+                    return;
+                rct_window* wind = window_find_by_number(WC_PEEP, peepnum);
+                if (wind)
+                {
+                    tool_set(wind, WC_PEEP__WIDX_PICKUP, Tool::Picker);
+                }
+            });
+            GameActions::Execute(&pickupAction);
+        }
+        break;
         case WIDX_RENAME:
-            window_text_input_open(
-                w, widgetIndex, STR_GUEST_RENAME_TITLE, STR_GUEST_RENAME_PROMPT, peep->name_string_idx, peep->id, 32);
+        {
+            auto peepName = peep->GetName();
+            window_text_input_raw_open(w, widgetIndex, STR_GUEST_RENAME_TITLE, STR_GUEST_RENAME_PROMPT, peepName.c_str(), 32);
             break;
+        }
         case WIDX_LOCATE:
-            window_scroll_to_viewport(w);
+            w->ScrollToViewport();
             break;
         case WIDX_TRACK:
         {
-            uint32_t flags = peep->peep_flags ^ PEEP_FLAGS_TRACKING;
+            uint32_t flags = peep->PeepFlags ^ PEEP_FLAGS_TRACKING;
 
             auto guestSetFlagsAction = GuestSetFlagsAction(w->number, flags);
             GameActions::Execute(&guestSetFlagsAction);
@@ -669,12 +642,7 @@ void window_guest_set_page(rct_window* w, int32_t page)
     w->no_list_items = 0;
     w->selected_list_item = -1;
 
-    rct_viewport* viewport = w->viewport;
-    w->viewport = nullptr;
-    if (viewport)
-    {
-        viewport->width = 0;
-    }
+    w->RemoveViewport();
 
     w->enabled_widgets = window_guest_page_enabled_widgets[page];
     w->hold_down_widgets = 0;
@@ -682,11 +650,11 @@ void window_guest_set_page(rct_window* w, int32_t page)
     w->pressed_widgets = 0;
     w->widgets = window_guest_page_widgets[page];
     window_guest_disable_widgets(w);
-    window_invalidate(w);
+    w->Invalidate();
     window_event_resize_call(w);
     window_event_invalidate_call(w);
-    window_init_scroll_widgets(w);
-    window_invalidate(w);
+    WindowInitScrollWidgets(w);
+    w->Invalidate();
 
     if (listen && w->viewport)
         w->viewport->flags |= VIEWPORT_FLAG_SOUND_ON;
@@ -706,55 +674,56 @@ void window_guest_viewport_init(rct_window* w)
     if (w->page != WINDOW_GUEST_OVERVIEW)
         return;
 
-    auto peep = GET_PEEP(w->number);
-    if (peep != nullptr)
+    const auto peep = GetGuest(w);
+    if (peep == nullptr)
     {
-        auto focus = viewport_update_smart_guest_follow(w, peep);
-        bool reCreateViewport = false;
-        uint16_t origViewportFlags{};
-        if (w->viewport != nullptr)
-        {
-            // Check all combos, for now skipping y and rot
-            if (focus.coordinate.x == w->viewport_focus_coordinates.x
-                && (focus.coordinate.y & VIEWPORT_FOCUS_Y_MASK) == w->viewport_focus_coordinates.y
-                && focus.coordinate.z == w->viewport_focus_coordinates.z
-                && focus.coordinate.rotation == w->viewport_focus_coordinates.rotation)
-                return;
-
-            origViewportFlags = w->viewport->flags;
-
-            reCreateViewport = true;
-            w->viewport->width = 0;
-            w->viewport = nullptr;
-        }
-
-        window_event_invalidate_call(w);
-
-        w->viewport_focus_coordinates.x = focus.coordinate.x;
-        w->viewport_focus_coordinates.y = focus.coordinate.y;
-        w->viewport_focus_coordinates.z = focus.coordinate.z;
-        w->viewport_focus_coordinates.rotation = focus.coordinate.rotation;
-
-        if (peep->state != PEEP_STATE_PICKED && w->viewport == nullptr)
-        {
-            auto view_widget = &w->widgets[WIDX_VIEWPORT];
-            int32_t x = view_widget->left + 1 + w->x;
-            int32_t y = view_widget->top + 1 + w->y;
-            int32_t width = view_widget->right - view_widget->left - 1;
-            int32_t height = view_widget->bottom - view_widget->top - 1;
-
-            viewport_create(
-                w, x, y, width, height, 0, focus.coordinate.x, focus.coordinate.y & VIEWPORT_FOCUS_Y_MASK, focus.coordinate.z,
-                focus.sprite.type & VIEWPORT_FOCUS_TYPE_MASK, focus.sprite.sprite_id);
-            if (w->viewport != nullptr && reCreateViewport)
-            {
-                w->viewport->flags = origViewportFlags;
-            }
-            w->flags |= WF_NO_SCROLLING;
-            window_invalidate(w);
-        }
-        window_invalidate(w);
+        return;
     }
+
+    auto focus = viewport_update_smart_guest_follow(w, peep);
+    bool reCreateViewport = false;
+    uint16_t origViewportFlags{};
+    if (w->viewport != nullptr)
+    {
+        // Check all combos, for now skipping y and rot
+        if (focus.coordinate.x == w->viewport_focus_coordinates.x
+            && (focus.coordinate.y & VIEWPORT_FOCUS_Y_MASK) == w->viewport_focus_coordinates.y
+            && focus.coordinate.z == w->viewport_focus_coordinates.z
+            && focus.coordinate.rotation == w->viewport_focus_coordinates.rotation)
+            return;
+
+        origViewportFlags = w->viewport->flags;
+
+        reCreateViewport = true;
+        w->RemoveViewport();
+    }
+
+    window_event_invalidate_call(w);
+
+    w->viewport_focus_coordinates.x = focus.coordinate.x;
+    w->viewport_focus_coordinates.y = focus.coordinate.y;
+    w->viewport_focus_coordinates.z = focus.coordinate.z;
+    w->viewport_focus_coordinates.rotation = focus.coordinate.rotation;
+
+    if (peep->State != PeepState::Picked && w->viewport == nullptr)
+    {
+        auto view_widget = &w->widgets[WIDX_VIEWPORT];
+        auto screenPos = ScreenCoordsXY{ view_widget->left + 1 + w->windowPos.x, view_widget->top + 1 + w->windowPos.y };
+        int32_t width = view_widget->width() - 1;
+        int32_t height = view_widget->height() - 1;
+
+        viewport_create(
+            w, screenPos, width, height, 0,
+            { focus.coordinate.x, focus.coordinate.y & VIEWPORT_FOCUS_Y_MASK, focus.coordinate.z },
+            focus.sprite.type & VIEWPORT_FOCUS_TYPE_MASK, focus.sprite.sprite_id);
+        if (w->viewport != nullptr && reCreateViewport)
+        {
+            w->viewport->flags = origViewportFlags;
+        }
+        w->flags |= WF_NO_SCROLLING;
+        w->Invalidate();
+    }
+    w->Invalidate();
 }
 
 /**
@@ -768,63 +737,60 @@ static void window_guest_overview_tab_paint(rct_window* w, rct_drawpixelinfo* dp
         return;
 
     rct_widget* widget = &w->widgets[WIDX_TAB_1];
-    int32_t width = widget->right - widget->left - 1;
-    int32_t height = widget->bottom - widget->top - 1;
-    int32_t x = widget->left + 1 + w->x;
-    int32_t y = widget->top + 1 + w->y;
+    int32_t width = widget->width() - 1;
+    int32_t height = widget->height() - 1;
+    auto screenCoords = w->windowPos + ScreenCoordsXY{ widget->left + 1, widget->top + 1 };
     if (w->page == WINDOW_GUEST_OVERVIEW)
         height++;
 
     rct_drawpixelinfo clip_dpi;
-    if (!clip_drawpixelinfo(&clip_dpi, dpi, x, y, width, height))
+    if (!clip_drawpixelinfo(&clip_dpi, dpi, screenCoords, width, height))
     {
         return;
     }
 
-    x = 14;
-    y = 20;
+    screenCoords = ScreenCoordsXY{ 14, 20 };
 
-    Peep* peep = GET_PEEP(w->number);
+    const Peep* peep = GetEntity<Peep>(w->number);
+    if (peep == nullptr)
+    {
+        window_close(w);
+        return;
+    }
 
-    if (peep->type == PEEP_TYPE_STAFF && peep->staff_type == STAFF_TYPE_ENTERTAINER)
-        y++;
+    if (peep->Is<Staff>() && peep->AssignedStaffType == StaffType::Entertainer)
+        screenCoords.y++;
 
-    int32_t ebx = g_peep_animation_entries[peep->sprite_type].sprite_animation->base_image + 1;
+    int32_t animationFrame = GetPeepAnimation(peep->SpriteType).base_image + 1;
 
-    int32_t eax = 0;
+    int32_t animationFrameOffset = 0;
 
     if (w->page == WINDOW_GUEST_OVERVIEW)
     {
-        eax = w->var_496;
-        eax &= 0xFFFC;
+        animationFrameOffset = w->var_496;
+        animationFrameOffset &= 0xFFFC;
     }
-    ebx += eax;
+    animationFrame += animationFrameOffset;
 
-    int32_t sprite_id = ebx | SPRITE_ID_PALETTE_COLOUR_2(peep->tshirt_colour, peep->trousers_colour);
-    gfx_draw_sprite(&clip_dpi, sprite_id, x, y, 0);
+    auto sprite_id = ImageId(animationFrame, peep->TshirtColour, peep->TrousersColour);
+    gfx_draw_sprite(&clip_dpi, sprite_id, screenCoords);
 
     // If holding a balloon
-    if (ebx >= 0x2A1D && ebx < 0x2A3D)
+    if (animationFrame >= 0x2A1D && animationFrame < 0x2A3D)
     {
-        ebx += 32;
-        ebx |= SPRITE_ID_PALETTE_COLOUR_1(peep->balloon_colour);
-        gfx_draw_sprite(&clip_dpi, ebx, x, y, 0);
+        gfx_draw_sprite(&clip_dpi, ImageId(animationFrame + 32, peep->BalloonColour), screenCoords);
     }
 
     // If holding umbrella
-    if (ebx >= 0x2BBD && ebx < 0x2BDD)
+    if (animationFrame >= 0x2BBD && animationFrame < 0x2BDD)
     {
-        ebx += 32;
-        ebx |= SPRITE_ID_PALETTE_COLOUR_1(peep->umbrella_colour);
-        gfx_draw_sprite(&clip_dpi, ebx, x, y, 0);
+        gfx_draw_sprite(&clip_dpi, ImageId(animationFrame + 32, peep->UmbrellaColour), screenCoords);
     }
 
     // If wearing hat
-    if (ebx >= 0x29DD && ebx < 0x29FD)
+    if (animationFrame >= 0x29DD && animationFrame < 0x29FD)
     {
-        ebx += 32;
-        ebx |= SPRITE_ID_PALETTE_COLOUR_1(peep->hat_colour);
-        gfx_draw_sprite(&clip_dpi, ebx, x, y, 0);
+        gfx_draw_sprite(&clip_dpi, ImageId(animationFrame + 32, peep->HatColour), screenCoords);
     }
 }
 
@@ -838,10 +804,13 @@ static void window_guest_stats_tab_paint(rct_window* w, rct_drawpixelinfo* dpi)
         return;
 
     rct_widget* widget = &w->widgets[WIDX_TAB_2];
-    int32_t x = widget->left + w->x;
-    int32_t y = widget->top + w->y;
+    auto screenCoords = w->windowPos + ScreenCoordsXY{ widget->left, widget->top };
 
-    Peep* peep = GET_PEEP(w->number);
+    const auto peep = GetGuest(w);
+    if (peep == nullptr)
+    {
+        return;
+    }
     int32_t image_id = get_peep_face_sprite_large(peep);
     if (w->page == WINDOW_GUEST_STATS)
     {
@@ -860,7 +829,7 @@ static void window_guest_stats_tab_paint(rct_window* w, rct_drawpixelinfo* dpi)
                 break;
         }
     }
-    gfx_draw_sprite(dpi, image_id, x, y, 0);
+    gfx_draw_sprite(dpi, ImageId(image_id), screenCoords);
 }
 
 /**
@@ -873,8 +842,7 @@ static void window_guest_rides_tab_paint(rct_window* w, rct_drawpixelinfo* dpi)
         return;
 
     rct_widget* widget = &w->widgets[WIDX_TAB_3];
-    int32_t x = widget->left + w->x;
-    int32_t y = widget->top + w->y;
+    auto screenCoords = w->windowPos + ScreenCoordsXY{ widget->left, widget->top };
 
     int32_t image_id = SPR_TAB_RIDE_0;
 
@@ -883,7 +851,7 @@ static void window_guest_rides_tab_paint(rct_window* w, rct_drawpixelinfo* dpi)
         image_id += (w->frame_no / 4) & 0xF;
     }
 
-    gfx_draw_sprite(dpi, image_id, x, y, 0);
+    gfx_draw_sprite(dpi, ImageId(image_id), screenCoords);
 }
 
 /**
@@ -896,8 +864,7 @@ static void window_guest_finance_tab_paint(rct_window* w, rct_drawpixelinfo* dpi
         return;
 
     rct_widget* widget = &w->widgets[WIDX_TAB_4];
-    int32_t x = widget->left + w->x;
-    int32_t y = widget->top + w->y;
+    auto screenCoords = w->windowPos + ScreenCoordsXY{ widget->left, widget->top };
 
     int32_t image_id = SPR_TAB_FINANCES_SUMMARY_0;
 
@@ -906,7 +873,7 @@ static void window_guest_finance_tab_paint(rct_window* w, rct_drawpixelinfo* dpi
         image_id += (w->frame_no / 2) & 0x7;
     }
 
-    gfx_draw_sprite(dpi, image_id, x, y, 0);
+    gfx_draw_sprite(dpi, ImageId(image_id), screenCoords);
 }
 
 /**
@@ -919,8 +886,7 @@ static void window_guest_thoughts_tab_paint(rct_window* w, rct_drawpixelinfo* dp
         return;
 
     rct_widget* widget = &w->widgets[WIDX_TAB_5];
-    int32_t x = widget->left + w->x;
-    int32_t y = widget->top + w->y;
+    auto screenCoords = w->windowPos + ScreenCoordsXY{ widget->left, widget->top };
 
     int32_t image_id = SPR_TAB_THOUGHTS_0;
 
@@ -929,7 +895,7 @@ static void window_guest_thoughts_tab_paint(rct_window* w, rct_drawpixelinfo* dp
         image_id += (w->frame_no / 2) & 0x7;
     }
 
-    gfx_draw_sprite(dpi, image_id, x, y, 0);
+    gfx_draw_sprite(dpi, ImageId(image_id), screenCoords);
 }
 
 /**
@@ -942,12 +908,26 @@ static void window_guest_inventory_tab_paint(rct_window* w, rct_drawpixelinfo* d
         return;
 
     rct_widget* widget = &w->widgets[WIDX_TAB_6];
-    int32_t x = widget->left + w->x;
-    int32_t y = widget->top + w->y;
+    auto screenCoords = w->windowPos + ScreenCoordsXY{ widget->left, widget->top };
 
-    int32_t image_id = SPR_TAB_GUEST_INVENTORY;
+    gfx_draw_sprite(dpi, ImageId(SPR_TAB_GUEST_INVENTORY), screenCoords);
+}
 
-    gfx_draw_sprite(dpi, image_id, x, y, 0);
+static void window_guest_debug_tab_paint(rct_window* w, rct_drawpixelinfo* dpi)
+{
+    if (w->disabled_widgets & (1 << WIDX_TAB_7))
+        return;
+
+    rct_widget* widget = &w->widgets[WIDX_TAB_7];
+    auto screenCoords = w->windowPos + ScreenCoordsXY{ widget->left, widget->top };
+
+    int32_t image_id = SPR_TAB_GEARS_0;
+    if (w->page == WINDOW_GUEST_DEBUG)
+    {
+        image_id += (w->frame_no / 2) & 0x3;
+    }
+
+    gfx_draw_sprite(dpi, ImageId(image_id), screenCoords);
 }
 
 /**
@@ -956,13 +936,14 @@ static void window_guest_inventory_tab_paint(rct_window* w, rct_drawpixelinfo* d
  */
 void window_guest_overview_paint(rct_window* w, rct_drawpixelinfo* dpi)
 {
-    window_draw_widgets(w, dpi);
+    WindowDrawWidgets(w, dpi);
     window_guest_overview_tab_paint(w, dpi);
     window_guest_stats_tab_paint(w, dpi);
     window_guest_rides_tab_paint(w, dpi);
     window_guest_finance_tab_paint(w, dpi);
     window_guest_thoughts_tab_paint(w, dpi);
     window_guest_inventory_tab_paint(w, dpi);
+    window_guest_debug_tab_paint(w, dpi);
 
     // Draw the viewport no sound sprite
     if (w->viewport)
@@ -971,30 +952,35 @@ void window_guest_overview_paint(rct_window* w, rct_drawpixelinfo* dpi)
         rct_viewport* viewport = w->viewport;
         if (viewport->flags & VIEWPORT_FLAG_SOUND_ON)
         {
-            gfx_draw_sprite(dpi, SPR_HEARING_VIEWPORT, w->x + 2, w->y + 2, 0);
+            gfx_draw_sprite(dpi, ImageId(SPR_HEARING_VIEWPORT), w->windowPos + ScreenCoordsXY{ 2, 2 });
         }
     }
 
     // Draw the centred label
-    uint32_t argument1, argument2;
-    Peep* peep = GET_PEEP(w->number);
-    get_arguments_from_action(peep, &argument1, &argument2);
-    set_format_arg(0, uint32_t, argument1);
-    set_format_arg(4, uint32_t, argument2);
+    const auto peep = GetGuest(w);
+    if (peep == nullptr)
+    {
+        return;
+    }
+
     rct_widget* widget = &w->widgets[WIDX_ACTION_LBL];
-    int32_t x = (widget->left + widget->right) / 2 + w->x;
-    int32_t y = w->y + widget->top - 1;
-    int32_t width = widget->right - widget->left;
-    gfx_draw_string_centred_clipped(dpi, STR_BLACK_STRING, gCommonFormatArgs, COLOUR_BLACK, x, y, width);
+    auto screenPos = w->windowPos + ScreenCoordsXY{ widget->midX(), widget->top - 1 };
+
+    {
+        auto ft = Formatter();
+        peep->FormatActionTo(ft);
+        int32_t width = widget->width();
+        DrawTextEllipsised(dpi, screenPos, width, STR_BLACK_STRING, ft, { TextAlignment::CENTRE });
+    }
 
     // Draw the marquee thought
     widget = &w->widgets[WIDX_MARQUEE];
-    width = widget->right - widget->left - 3;
-    int32_t left = widget->left + 2 + w->x;
-    int32_t top = widget->top + w->y;
-    int32_t height = widget->bottom - widget->top;
+    auto width = widget->width() - 3;
+    int32_t left = widget->left + 2 + w->windowPos.x;
+    int32_t top = widget->top + w->windowPos.y;
+    int32_t height = widget->height();
     rct_drawpixelinfo dpi_marquee;
-    if (!clip_drawpixelinfo(&dpi_marquee, dpi, left, top, width, height))
+    if (!clip_drawpixelinfo(&dpi_marquee, dpi, { left, top }, width, height))
     {
         return;
     }
@@ -1002,12 +988,12 @@ void window_guest_overview_paint(rct_window* w, rct_drawpixelinfo* dpi)
     int32_t i = 0;
     for (; i < PEEP_MAX_THOUGHTS; ++i)
     {
-        if (peep->thoughts[i].type == PEEP_THOUGHT_TYPE_NONE)
+        if (peep->Thoughts[i].type == PeepThoughtType::None)
         {
             w->list_information_type = 0;
             return;
         }
-        if (peep->thoughts[i].freshness == 1)
+        if (peep->Thoughts[i].freshness == 1)
         { // If a fresh thought
             break;
         }
@@ -1018,9 +1004,12 @@ void window_guest_overview_paint(rct_window* w, rct_drawpixelinfo* dpi)
         return;
     }
 
-    x = widget->right - widget->left - w->list_information_type;
-    peep_thought_set_format_args(&peep->thoughts[i]);
-    gfx_draw_string_left(&dpi_marquee, STR_WINDOW_COLOUR_2_STRINGID, gCommonFormatArgs, COLOUR_BLACK, x, 0);
+    screenPos.x = widget->width() - w->list_information_type;
+    {
+        auto ft = Formatter();
+        peep_thought_set_format_args(&peep->Thoughts[i], ft);
+        DrawTextBasic(&dpi_marquee, { screenPos.x, 0 }, STR_WINDOW_COLOUR_2_STRINGID, ft, { FontSpriteBase::SMALL });
+    }
 }
 
 /**
@@ -1029,37 +1018,18 @@ void window_guest_overview_paint(rct_window* w, rct_drawpixelinfo* dpi)
  */
 void window_guest_overview_invalidate(rct_window* w)
 {
-    if (window_guest_page_widgets[w->page] != w->widgets)
+    window_guest_common_invalidate(w);
+
+    const auto peep = GetGuest(w);
+    if (peep == nullptr)
     {
-        w->widgets = window_guest_page_widgets[w->page];
-        window_init_scroll_widgets(w);
+        return;
     }
-
-    w->pressed_widgets &= ~(
-        (1ULL << WIDX_TAB_1) | (1ULL << WIDX_TAB_2) | (1ULL << WIDX_TAB_3) | (1ULL << WIDX_TAB_4) | (1ULL << WIDX_TAB_5)
-        | (1ULL << WIDX_TAB_6));
-    w->pressed_widgets |= 1ULL << (w->page + WIDX_TAB_1);
-
-    Peep* peep = GET_PEEP(w->number);
-    set_format_arg(0, rct_string_id, peep->name_string_idx);
-    set_format_arg(2, uint32_t, peep->id);
-
     w->pressed_widgets &= ~(1 << WIDX_TRACK);
-    if (peep->peep_flags & PEEP_FLAGS_TRACKING)
+    if (peep->PeepFlags & PEEP_FLAGS_TRACKING)
     {
         w->pressed_widgets |= (1 << WIDX_TRACK);
     }
-
-    window_guest_overview_widgets[WIDX_BACKGROUND].right = w->width - 1;
-    window_guest_overview_widgets[WIDX_BACKGROUND].bottom = w->height - 1;
-
-    window_guest_overview_widgets[WIDX_PAGE_BACKGROUND].right = w->width - 1;
-    window_guest_overview_widgets[WIDX_PAGE_BACKGROUND].bottom = w->height - 1;
-
-    window_guest_overview_widgets[WIDX_TITLE].right = w->width - 2;
-
-    window_guest_overview_widgets[WIDX_CLOSE].left = w->width - 13;
-    window_guest_overview_widgets[WIDX_CLOSE].right = w->width - 3;
 
     window_guest_overview_widgets[WIDX_VIEWPORT].right = w->width - 26;
     window_guest_overview_widgets[WIDX_VIEWPORT].bottom = w->height - 14;
@@ -1079,8 +1049,6 @@ void window_guest_overview_invalidate(rct_window* w)
     window_guest_overview_widgets[WIDX_RENAME].left = w->width - 25;
     window_guest_overview_widgets[WIDX_LOCATE].left = w->width - 25;
     window_guest_overview_widgets[WIDX_TRACK].left = w->width - 25;
-
-    window_align_tabs(w, WIDX_TAB_1, WIDX_TAB_6);
 }
 
 /**
@@ -1089,18 +1057,22 @@ void window_guest_overview_invalidate(rct_window* w)
  */
 void window_guest_overview_update(rct_window* w)
 {
-    int32_t var_496 = w->var_496;
-    var_496++;
-    var_496 %= 24;
-    w->var_496 = var_496;
+    int32_t newAnimationFrame = w->var_496;
+    newAnimationFrame++;
+    newAnimationFrame %= 24;
+    w->var_496 = newAnimationFrame;
 
     widget_invalidate(w, WIDX_TAB_1);
     widget_invalidate(w, WIDX_TAB_2);
 
-    Peep* peep = GET_PEEP(w->number);
-    if (peep != nullptr && peep->window_invalidate_flags & PEEP_INVALIDATE_PEEP_ACTION)
+    const auto peep = GetGuest(w);
+    if (peep == nullptr)
     {
-        peep->window_invalidate_flags &= ~PEEP_INVALIDATE_PEEP_ACTION;
+        return;
+    }
+    if (peep->WindowInvalidateFlags & PEEP_INVALIDATE_PEEP_ACTION)
+    {
+        peep->WindowInvalidateFlags &= ~PEEP_INVALIDATE_PEEP_ACTION;
         widget_invalidate(w, WIDX_ACTION_LBL);
     }
 
@@ -1122,7 +1094,7 @@ void window_guest_overview_update(rct_window* w)
                 int32_t random = util_rand() & 0xFFFF;
                 if (random <= 0x2AAA)
                 {
-                    peep_insert_new_thought(peep, PEEP_THOUGHT_TYPE_WATCHED, PEEP_THOUGHT_ITEM_NONE);
+                    peep->InsertNewThought(PeepThoughtType::Watched, PEEP_THOUGHT_ITEM_NONE);
                 }
             }
         }
@@ -1144,7 +1116,7 @@ void window_guest_overview_text_input(rct_window* w, rct_widgetindex widgetIndex
  *
  *  rct2: 0x696A5F
  */
-void window_guest_overview_tool_update(rct_window* w, rct_widgetindex widgetIndex, int32_t x, int32_t y)
+void window_guest_overview_tool_update(rct_window* w, rct_widgetindex widgetIndex, const ScreenCoordsXY& screenCoords)
 {
     if (widgetIndex != WIDX_PICKUP)
         return;
@@ -1153,43 +1125,40 @@ void window_guest_overview_tool_update(rct_window* w, rct_widgetindex widgetInde
 
     gMapSelectFlags &= ~MAP_SELECT_FLAG_ENABLE;
 
-    int32_t map_x, map_y;
-    footpath_get_coordinates_from_pos(x, y + 16, &map_x, &map_y, nullptr, nullptr);
-    if (map_x != LOCATION_NULL)
+    auto mapCoords = footpath_get_coordinates_from_pos({ screenCoords.x, screenCoords.y + 16 }, nullptr, nullptr);
+    if (!mapCoords.isNull())
     {
         gMapSelectFlags |= MAP_SELECT_FLAG_ENABLE;
         gMapSelectType = MAP_SELECT_TYPE_FULL;
-        gMapSelectPositionA.x = map_x;
-        gMapSelectPositionB.x = map_x;
-        gMapSelectPositionA.y = map_y;
-        gMapSelectPositionB.y = map_y;
+        gMapSelectPositionA = mapCoords;
+        gMapSelectPositionB = mapCoords;
         map_invalidate_selection_rect();
     }
 
     gPickupPeepImage = UINT32_MAX;
 
-    int32_t interactionType;
-    get_map_coordinates_from_pos(x, y, VIEWPORT_INTERACTION_MASK_NONE, nullptr, nullptr, &interactionType, nullptr, nullptr);
-    if (interactionType == VIEWPORT_INTERACTION_ITEM_NONE)
+    auto info = get_map_coordinates_from_pos(screenCoords, ViewportInteractionItemAll);
+    if (info.SpriteType == ViewportInteractionItem::None)
         return;
 
-    x--;
-    y += 16;
-    gPickupPeepX = x;
-    gPickupPeepY = y;
+    gPickupPeepX = screenCoords.x - 1;
+    gPickupPeepY = screenCoords.y + 16;
     w->picked_peep_frame++;
     if (w->picked_peep_frame >= 48)
     {
         w->picked_peep_frame = 0;
     }
 
-    Peep* peep;
-    peep = GET_PEEP(w->number);
+    const auto peep = GetGuest(w);
+    if (peep == nullptr)
+    {
+        return;
+    }
 
-    uint32_t imageId = g_peep_animation_entries[peep->sprite_type].sprite_animation[PEEP_ACTION_SPRITE_TYPE_UI].base_image;
+    uint32_t imageId = GetPeepAnimation(peep->SpriteType, PeepActionSpriteType::Ui).base_image;
     imageId += w->picked_peep_frame >> 2;
 
-    imageId |= (peep->tshirt_colour << 19) | (peep->trousers_colour << 24) | IMAGE_TYPE_REMAP | IMAGE_TYPE_REMAP_2_PLUS;
+    imageId |= (peep->TshirtColour << 19) | (peep->TrousersColour << 24) | IMAGE_TYPE_REMAP | IMAGE_TYPE_REMAP_2_PLUS;
     gPickupPeepImage = imageId;
 }
 
@@ -1197,20 +1166,27 @@ void window_guest_overview_tool_update(rct_window* w, rct_widgetindex widgetInde
  *
  *  rct2: 0x696A54
  */
-void window_guest_overview_tool_down(rct_window* w, rct_widgetindex widgetIndex, int32_t x, int32_t y)
+void window_guest_overview_tool_down(rct_window* w, rct_widgetindex widgetIndex, const ScreenCoordsXY& screenCoords)
 {
     if (widgetIndex != WIDX_PICKUP)
         return;
 
-    int32_t dest_x, dest_y;
     TileElement* tileElement;
-    footpath_get_coordinates_from_pos(x, y + 16, &dest_x, &dest_y, nullptr, &tileElement);
+    auto destCoords = footpath_get_coordinates_from_pos({ screenCoords.x, screenCoords.y + 16 }, nullptr, &tileElement);
 
-    if (dest_x == LOCATION_NULL)
+    if (destCoords.isNull())
         return;
 
-    game_command_callback = game_command_callback_pickup_guest;
-    game_do_command(w->number, GAME_COMMAND_FLAG_APPLY, 2, tileElement->base_height, GAME_COMMAND_PICKUP_GUEST, dest_x, dest_y);
+    PeepPickupAction pickupAction{
+        PeepPickupType::Place, w->number, { destCoords, tileElement->GetBaseZ() }, network_get_current_player_id()
+    };
+    pickupAction.SetCallback([](const GameAction* ga, const GameActions::Result* result) {
+        if (result->Error != GameActions::Status::Ok)
+            return;
+        tool_cancel();
+        gPickupPeepImage = UINT32_MAX;
+    });
+    GameActions::Execute(&pickupAction);
 }
 
 /**
@@ -1222,7 +1198,10 @@ void window_guest_overview_tool_abort(rct_window* w, rct_widgetindex widgetIndex
     if (widgetIndex != WIDX_PICKUP)
         return;
 
-    game_do_command(w->number, GAME_COMMAND_FLAG_APPLY, 1, 0, GAME_COMMAND_PICKUP_GUEST, w->picked_peep_old_x, 0);
+    PeepPickupAction pickupAction{
+        PeepPickupType::Cancel, w->number, { w->picked_peep_old_x, 0, 0 }, network_get_current_player_id()
+    };
+    GameActions::Execute(&pickupAction);
 }
 
 /**
@@ -1242,27 +1221,10 @@ void window_guest_mouse_up(rct_window* w, rct_widgetindex widgetIndex)
         case WIDX_TAB_4:
         case WIDX_TAB_5:
         case WIDX_TAB_6:
+        case WIDX_TAB_7:
             window_guest_set_page(w, widgetIndex - WIDX_TAB_1);
             break;
     }
-}
-
-/**
- *
- *  rct2: 0x697488
- */
-void window_guest_stats_resize(rct_window* w)
-{
-    window_set_resize(w, 192, 180, 192, 180);
-}
-
-/**
- * This is a combination of 5 functions that were identical
- *  rct2: 0x6974ED, 0x00697959, 0x00697C7B, 0x00697ED2, 0x00698333
- */
-void window_guest_unknown_05(rct_window* w)
-{
-    widget_invalidate(w, WIDX_TAB_1);
 }
 
 /**
@@ -1272,64 +1234,34 @@ void window_guest_unknown_05(rct_window* w)
 void window_guest_stats_update(rct_window* w)
 {
     w->frame_no++;
-    Peep* peep = GET_PEEP(w->number);
-    peep->window_invalidate_flags &= ~PEEP_INVALIDATE_PEEP_STATS;
-
-    window_invalidate(w);
-}
-
-/**
- *
- *  rct2: 0x69707D
- */
-void window_guest_stats_invalidate(rct_window* w)
-{
-    if (w->widgets != window_guest_page_widgets[w->page])
+    auto peep = GetGuest(w);
+    if (peep == nullptr)
     {
-        w->widgets = window_guest_page_widgets[w->page];
-        window_init_scroll_widgets(w);
+        return;
     }
+    peep->WindowInvalidateFlags &= ~PEEP_INVALIDATE_PEEP_STATS;
 
-    w->pressed_widgets |= 1ULL << (w->page + WIDX_TAB_1);
-
-    Peep* peep = GET_PEEP(w->number);
-    set_format_arg(0, rct_string_id, peep->name_string_idx);
-    set_format_arg(2, uint32_t, peep->id);
-
-    window_guest_stats_widgets[WIDX_BACKGROUND].right = w->width - 1;
-    window_guest_stats_widgets[WIDX_BACKGROUND].bottom = w->height - 1;
-
-    window_guest_stats_widgets[WIDX_PAGE_BACKGROUND].right = w->width - 1;
-    window_guest_stats_widgets[WIDX_PAGE_BACKGROUND].bottom = w->height - 1;
-
-    window_guest_stats_widgets[WIDX_TITLE].right = w->width - 2;
-
-    window_guest_stats_widgets[WIDX_CLOSE].left = w->width - 13;
-    window_guest_stats_widgets[WIDX_CLOSE].right = w->width - 3;
-
-    window_align_tabs(w, WIDX_TAB_1, WIDX_TAB_6);
+    w->Invalidate();
 }
 
 /**
  *
  *  rct2: 0x0066ECC1
  *
- *  ebp: colour, contains flag BAR_BLINK for blinking
  */
 static void window_guest_stats_bars_paint(
-    int32_t value, int32_t x, int32_t y, rct_window* w, rct_drawpixelinfo* dpi, int32_t colour)
+    int32_t value, const ScreenCoordsXY& origCoords, rct_window* w, rct_drawpixelinfo* dpi, int32_t colour, bool blinkFlag)
 {
-    if (font_get_line_height(gCurrentFontSpriteBase) > 10)
+    auto coords = origCoords;
+    if (font_get_line_height(FontSpriteBase::MEDIUM) > 10)
     {
-        y += 1;
+        coords.y += 1;
     }
 
-    gfx_fill_rect_inset(dpi, x + 61, y + 1, x + 61 + 121, y + 9, w->colours[1], INSET_RECT_F_30);
+    gfx_fill_rect_inset(
+        dpi, { coords + ScreenCoordsXY{ 61, 1 }, coords + ScreenCoordsXY{ 61 + 121, 9 } }, w->colours[1], INSET_RECT_F_30);
 
-    int32_t blink_flag = colour & BAR_BLINK;
-    colour &= ~BAR_BLINK;
-
-    if (!blink_flag || game_is_paused() || (gCurrentRealTimeTicks & 8) == 0)
+    if (!blinkFlag || game_is_paused() || (gCurrentRealTimeTicks & 8) == 0)
     {
         value *= 118;
         value >>= 8;
@@ -1337,8 +1269,18 @@ static void window_guest_stats_bars_paint(
         if (value <= 2)
             return;
 
-        gfx_fill_rect_inset(dpi, x + 63, y + 2, x + 63 + value - 1, y + 8, colour, 0);
+        gfx_fill_rect_inset(dpi, { coords + ScreenCoordsXY{ 63, 2 }, coords + ScreenCoordsXY{ 63 + value - 1, 8 } }, colour, 0);
     }
+}
+
+/**
+ * Takes a guest stat value (scaled to currMax) and adjusts it to be scaled out of 255.
+ * Then clamp the value to between newMin and 255.
+ */
+static int32_t NormalizeGuestStatValue(int32_t value, int32_t currMax, int32_t newMin)
+{
+    int32_t newValue = (value * 255) / currMax;
+    return std::clamp(newValue, newMin, 255);
 }
 
 /**
@@ -1347,186 +1289,138 @@ static void window_guest_stats_bars_paint(
  */
 void window_guest_stats_paint(rct_window* w, rct_drawpixelinfo* dpi)
 {
-    window_draw_widgets(w, dpi);
+    WindowDrawWidgets(w, dpi);
     window_guest_overview_tab_paint(w, dpi);
     window_guest_stats_tab_paint(w, dpi);
     window_guest_rides_tab_paint(w, dpi);
     window_guest_finance_tab_paint(w, dpi);
     window_guest_thoughts_tab_paint(w, dpi);
     window_guest_inventory_tab_paint(w, dpi);
+    window_guest_debug_tab_paint(w, dpi);
 
     // ebx
-    Peep* peep = GET_PEEP(w->number);
+    const auto peep = GetGuest(w);
+    if (peep == nullptr)
+    {
+        return;
+    }
 
     // Not sure why this is not stats widgets
-    // cx
-    int32_t x = w->x + window_guest_rides_widgets[WIDX_PAGE_BACKGROUND].left + 4;
-    // dx
-    int32_t y = w->y + window_guest_rides_widgets[WIDX_PAGE_BACKGROUND].top + 4;
+    // cx dx
+    auto screenCoords = w->windowPos
+        + ScreenCoordsXY{ window_guest_rides_widgets[WIDX_PAGE_BACKGROUND].left + 4,
+                          window_guest_rides_widgets[WIDX_PAGE_BACKGROUND].top + 4 };
 
     // Happiness
-    gfx_draw_string_left(dpi, STR_GUEST_STAT_HAPPINESS_LABEL, gCommonFormatArgs, COLOUR_BLACK, x, y);
+    DrawTextBasic(dpi, screenCoords, STR_GUEST_STAT_HAPPINESS_LABEL);
 
-    int32_t happiness = peep->happiness;
-    if (happiness < 10)
-        happiness = 10;
-    int32_t ebp = COLOUR_BRIGHT_GREEN;
-    if (happiness < 50)
-    {
-        ebp |= BAR_BLINK;
-    }
-    window_guest_stats_bars_paint(happiness, x, y, w, dpi, ebp);
+    int32_t happiness = NormalizeGuestStatValue(peep->Happiness, PEEP_MAX_HAPPINESS, 10);
+    int32_t barColour = COLOUR_BRIGHT_GREEN;
+    bool barBlink = happiness < 50;
+    window_guest_stats_bars_paint(happiness, screenCoords, w, dpi, barColour, barBlink);
 
     // Energy
-    y += LIST_ROW_HEIGHT;
-    gfx_draw_string_left(dpi, STR_GUEST_STAT_ENERGY_LABEL, gCommonFormatArgs, COLOUR_BLACK, x, y);
+    screenCoords.y += LIST_ROW_HEIGHT;
+    DrawTextBasic(dpi, screenCoords, STR_GUEST_STAT_ENERGY_LABEL);
 
-    int32_t energy = ((peep->energy - PEEP_MIN_ENERGY) * 255) / (PEEP_MAX_ENERGY - PEEP_MIN_ENERGY);
-    ebp = COLOUR_BRIGHT_GREEN;
-    if (energy < 50)
-    {
-        ebp |= BAR_BLINK;
-    }
-    if (energy < 10)
-        energy = 10;
-    window_guest_stats_bars_paint(energy, x, y, w, dpi, ebp);
+    int32_t energy = NormalizeGuestStatValue(peep->Energy - PEEP_MIN_ENERGY, PEEP_MAX_ENERGY - PEEP_MIN_ENERGY, 10);
+    barColour = COLOUR_BRIGHT_GREEN;
+    barBlink = energy < 50;
+    window_guest_stats_bars_paint(energy, screenCoords, w, dpi, barColour, barBlink);
 
     // Hunger
-    y += LIST_ROW_HEIGHT;
-    gfx_draw_string_left(dpi, STR_GUEST_STAT_HUNGER_LABEL, gCommonFormatArgs, COLOUR_BLACK, x, y);
+    screenCoords.y += LIST_ROW_HEIGHT;
+    DrawTextBasic(dpi, screenCoords, STR_GUEST_STAT_HUNGER_LABEL);
 
-    int32_t hunger = peep->hunger;
-    if (hunger > 190)
-        hunger = 190;
-
-    hunger -= 32;
-    if (hunger < 0)
-        hunger = 0;
-    hunger *= 51;
-    hunger /= 32;
-    hunger = 0xFF & ~hunger;
-
-    ebp = COLOUR_BRIGHT_RED;
-    if (hunger > 170)
-    {
-        ebp |= BAR_BLINK;
-    }
-    window_guest_stats_bars_paint(hunger, x, y, w, dpi, ebp);
+    int32_t hunger = NormalizeGuestStatValue(peep->Hunger - 32, 158, 0);
+    hunger = 255 - hunger; // the bar should be longer when peep->Hunger is low
+    barColour = COLOUR_BRIGHT_RED;
+    barBlink = hunger > 170;
+    window_guest_stats_bars_paint(hunger, screenCoords, w, dpi, barColour, barBlink);
 
     // Thirst
-    y += LIST_ROW_HEIGHT;
-    gfx_draw_string_left(dpi, STR_GUEST_STAT_THIRST_LABEL, gCommonFormatArgs, COLOUR_BLACK, x, y);
+    screenCoords.y += LIST_ROW_HEIGHT;
+    DrawTextBasic(dpi, screenCoords, STR_GUEST_STAT_THIRST_LABEL);
 
-    int32_t thirst = peep->thirst;
-    if (thirst > 190)
-        thirst = 190;
-
-    thirst -= 32;
-    if (thirst < 0)
-        thirst = 0;
-    thirst *= 51;
-    thirst /= 32;
-    thirst = 0xFF & ~thirst;
-
-    ebp = COLOUR_BRIGHT_RED;
-    if (thirst > 170)
-    {
-        ebp |= BAR_BLINK;
-    }
-    window_guest_stats_bars_paint(thirst, x, y, w, dpi, ebp);
+    int32_t thirst = NormalizeGuestStatValue(peep->Thirst - 32, 158, 0);
+    thirst = 255 - thirst; // the bar should be longer when peep->Thirst is low
+    barColour = COLOUR_BRIGHT_RED;
+    barBlink = thirst > 170;
+    window_guest_stats_bars_paint(thirst, screenCoords, w, dpi, barColour, barBlink);
 
     // Nausea
-    y += LIST_ROW_HEIGHT;
-    gfx_draw_string_left(dpi, STR_GUEST_STAT_NAUSEA_LABEL, gCommonFormatArgs, COLOUR_BLACK, x, y);
+    screenCoords.y += LIST_ROW_HEIGHT;
+    DrawTextBasic(dpi, screenCoords, STR_GUEST_STAT_NAUSEA_LABEL);
 
-    int32_t nausea = peep->nausea - 32;
-
-    if (nausea < 0)
-        nausea = 0;
-    nausea *= 36;
-    nausea /= 32;
-
-    ebp = COLOUR_BRIGHT_RED;
-    if (nausea > 120)
-    {
-        ebp |= BAR_BLINK;
-    }
-    window_guest_stats_bars_paint(nausea, x, y, w, dpi, ebp);
+    int32_t nausea = NormalizeGuestStatValue(peep->Nausea - 32, 223, 0);
+    barColour = COLOUR_BRIGHT_RED;
+    barBlink = nausea > 120;
+    window_guest_stats_bars_paint(nausea, screenCoords, w, dpi, barColour, barBlink);
 
     // Toilet
-    y += LIST_ROW_HEIGHT;
-    gfx_draw_string_left(dpi, STR_GUEST_STAT_TOILET_LABEL, gCommonFormatArgs, COLOUR_BLACK, x, y);
+    screenCoords.y += LIST_ROW_HEIGHT;
+    DrawTextBasic(dpi, screenCoords, STR_GUEST_STAT_TOILET_LABEL);
 
-    int32_t toilet = peep->toilet - 32;
-    if (toilet > 210)
-        toilet = 210;
-
-    toilet -= 32;
-    if (toilet < 0)
-        toilet = 0;
-    toilet *= 45;
-    toilet /= 32;
-
-    ebp = COLOUR_BRIGHT_RED;
-    if (toilet > 160)
-    {
-        ebp |= BAR_BLINK;
-    }
-    window_guest_stats_bars_paint(toilet, x, y, w, dpi, ebp);
+    int32_t toilet = NormalizeGuestStatValue(peep->Toilet - 64, 178, 0);
+    barColour = COLOUR_BRIGHT_RED;
+    barBlink = toilet > 160;
+    window_guest_stats_bars_paint(toilet, screenCoords, w, dpi, barColour, barBlink);
 
     // Time in park
-    y += LIST_ROW_HEIGHT + 1;
-    if (peep->time_in_park != -1)
+    screenCoords.y += LIST_ROW_HEIGHT + 1;
+    int32_t guestEntryTime = peep->GetParkEntryTime();
+    if (guestEntryTime != -1)
     {
-        int32_t eax = gScenarioTicks;
-        eax -= peep->time_in_park;
-        eax >>= 11;
-        set_format_arg(0, uint16_t, eax & 0xFFFF);
-        gfx_draw_string_left(dpi, STR_GUEST_STAT_TIME_IN_PARK, gCommonFormatArgs, COLOUR_BLACK, x, y);
+        int32_t timeInPark = (gScenarioTicks - guestEntryTime) >> 11;
+        auto ft = Formatter();
+        ft.Add<uint16_t>(timeInPark & 0xFFFF);
+        DrawTextBasic(dpi, screenCoords, STR_GUEST_STAT_TIME_IN_PARK, ft);
     }
 
-    y += LIST_ROW_HEIGHT + 9;
-    gfx_fill_rect_inset(dpi, x, y - 6, x + 179, y - 5, w->colours[1], INSET_RECT_FLAG_BORDER_INSET);
+    screenCoords.y += LIST_ROW_HEIGHT + 9;
+    gfx_fill_rect_inset(
+        dpi, { screenCoords - ScreenCoordsXY{ 0, 6 }, screenCoords + ScreenCoordsXY{ 179, -5 } }, w->colours[1],
+        INSET_RECT_FLAG_BORDER_INSET);
 
     // Preferred Ride
-    gfx_draw_string_left(dpi, STR_GUEST_STAT_PREFERRED_RIDE, nullptr, COLOUR_BLACK, x, y);
-    y += LIST_ROW_HEIGHT;
+    DrawTextBasic(dpi, screenCoords, STR_GUEST_STAT_PREFERRED_RIDE);
+    screenCoords.y += LIST_ROW_HEIGHT;
 
     // Intensity
-    int32_t intensity = peep->intensity / 16;
-    set_format_arg(0, uint16_t, intensity);
-    int32_t string_id = STR_GUEST_STAT_PREFERRED_INTESITY_BELOW;
-    if (peep->intensity & 0xF)
     {
-        set_format_arg(0, uint16_t, peep->intensity & 0xF);
-        set_format_arg(2, uint16_t, intensity);
-        string_id = STR_GUEST_STAT_PREFERRED_INTESITY_BETWEEN;
-        if (intensity == 15)
-            string_id = STR_GUEST_STAT_PREFERRED_INTESITY_ABOVE;
+        auto ft = Formatter();
+        auto maxIntensity = peep->Intensity.GetMaximum();
+        int32_t string_id = STR_GUEST_STAT_PREFERRED_INTESITY_BELOW;
+        if (peep->Intensity.GetMinimum() != 0)
+        {
+            ft.Add<uint16_t>(peep->Intensity.GetMinimum());
+            ft.Add<uint16_t>(maxIntensity);
+            string_id = STR_GUEST_STAT_PREFERRED_INTESITY_BETWEEN;
+            if (maxIntensity == 15)
+                string_id = STR_GUEST_STAT_PREFERRED_INTESITY_ABOVE;
+        }
+        else
+        {
+            ft.Add<uint16_t>(maxIntensity);
+        }
+
+        DrawTextBasic(dpi, screenCoords + ScreenCoordsXY{ 4, 0 }, string_id, ft);
     }
 
-    gfx_draw_string_left(dpi, string_id, gCommonFormatArgs, COLOUR_BLACK, x + 4, y);
-
     // Nausea tolerance
-    static constexpr const rct_string_id nauseaTolerances[] = {
-        STR_PEEP_STAT_NAUSEA_TOLERANCE_NONE,
-        STR_PEEP_STAT_NAUSEA_TOLERANCE_LOW,
-        STR_PEEP_STAT_NAUSEA_TOLERANCE_AVERAGE,
-        STR_PEEP_STAT_NAUSEA_TOLERANCE_HIGH,
-    };
-    y += LIST_ROW_HEIGHT;
-    int32_t nausea_tolerance = peep->nausea_tolerance & 0x3;
-    set_format_arg(0, rct_string_id, nauseaTolerances[nausea_tolerance]);
-    gfx_draw_string_left(dpi, STR_GUEST_STAT_NAUSEA_TOLERANCE, gCommonFormatArgs, COLOUR_BLACK, x, y);
-}
-
-/**
- *
- *  rct2: 0x006978F4
- */
-void window_guest_rides_resize(rct_window* w)
-{
-    window_set_resize(w, 192, 128, 500, 400);
+    {
+        static constexpr const rct_string_id nauseaTolerances[] = {
+            STR_PEEP_STAT_NAUSEA_TOLERANCE_NONE,
+            STR_PEEP_STAT_NAUSEA_TOLERANCE_LOW,
+            STR_PEEP_STAT_NAUSEA_TOLERANCE_AVERAGE,
+            STR_PEEP_STAT_NAUSEA_TOLERANCE_HIGH,
+        };
+        screenCoords.y += LIST_ROW_HEIGHT;
+        auto nausea_tolerance = EnumValue(peep->NauseaTolerance) & 0x3;
+        auto ft = Formatter();
+        ft.Add<rct_string_id>(nauseaTolerances[nausea_tolerance]);
+        DrawTextBasic(dpi, screenCoords, STR_GUEST_STAT_NAUSEA_TOLERANCE, ft);
+    }
 }
 
 /**
@@ -1540,34 +1434,32 @@ void window_guest_rides_update(rct_window* w)
     widget_invalidate(w, WIDX_TAB_2);
     widget_invalidate(w, WIDX_TAB_3);
 
-    Peep* peep = GET_PEEP(w->number);
+    const auto guest = GetGuest(w);
+    if (guest == nullptr)
+    {
+        return;
+    }
 
     // Every 2048 ticks do a full window_invalidate
-    int32_t number_of_ticks = gScenarioTicks - peep->time_in_park;
+    int32_t number_of_ticks = gScenarioTicks - guest->GetParkEntryTime();
     if (!(number_of_ticks & 0x7FF))
-        window_invalidate(w);
+        w->Invalidate();
 
     uint8_t curr_list_position = 0;
-    for (ride_id_t ride_id = 0; ride_id < MAX_RIDES; ride_id++)
+    for (const auto& ride : GetRideManager())
     {
-        // Offset to the ride_id bit in peep_rides_been_on
-        uint8_t ride_id_bit = ride_id % 8;
-        uint8_t ride_id_offset = ride_id / 8;
-        if (peep->rides_been_on[ride_id_offset] & (1 << ride_id_bit))
+        if (ride.IsRide() && guest->HasRidden(&ride))
         {
-            Ride* ride = get_ride(ride_id);
-            if (gRideClassifications[ride->type] == RIDE_CLASS_RIDE)
-            {
-                w->list_item_positions[curr_list_position] = ride_id;
-                curr_list_position++;
-            }
+            w->list_item_positions[curr_list_position] = ride.id;
+            curr_list_position++;
         }
     }
+
     // If there are new items
     if (w->no_list_items != curr_list_position)
     {
         w->no_list_items = curr_list_position;
-        window_invalidate(w);
+        w->Invalidate();
     }
 }
 
@@ -1582,7 +1474,7 @@ void window_guest_rides_scroll_get_size(rct_window* w, int32_t scrollIndex, int3
     if (w->selected_list_item != -1)
     {
         w->selected_list_item = -1;
-        window_invalidate(w);
+        w->Invalidate();
     }
 
     int32_t visable_height = *height - window_guest_rides_widgets[WIDX_RIDE_SCROLL].bottom
@@ -1594,7 +1486,7 @@ void window_guest_rides_scroll_get_size(rct_window* w, int32_t scrollIndex, int3
     if (visable_height < w->scrolls[0].v_top)
     {
         w->scrolls[0].v_top = visable_height;
-        window_invalidate(w);
+        w->Invalidate();
     }
 }
 
@@ -1602,11 +1494,11 @@ void window_guest_rides_scroll_get_size(rct_window* w, int32_t scrollIndex, int3
  *
  *  rct2: 0x006978CC
  */
-void window_guest_rides_scroll_mouse_down(rct_window* w, int32_t scrollIndex, int32_t x, int32_t y)
+void window_guest_rides_scroll_mouse_down(rct_window* w, int32_t scrollIndex, const ScreenCoordsXY& screenCoords)
 {
     int32_t index;
 
-    index = y / 10;
+    index = screenCoords.y / 10;
     if (index >= w->no_list_items)
         return;
 
@@ -1619,11 +1511,11 @@ void window_guest_rides_scroll_mouse_down(rct_window* w, int32_t scrollIndex, in
  *
  *  rct2: 0x0069789C
  */
-void window_guest_rides_scroll_mouse_over(rct_window* w, int32_t scrollIndex, int32_t x, int32_t y)
+void window_guest_rides_scroll_mouse_over(rct_window* w, int32_t scrollIndex, const ScreenCoordsXY& screenCoords)
 {
     int32_t index;
 
-    index = y / 10;
+    index = screenCoords.y / 10;
     if (index >= w->no_list_items)
         return;
 
@@ -1631,7 +1523,7 @@ void window_guest_rides_scroll_mouse_over(rct_window* w, int32_t scrollIndex, in
         return;
     w->selected_list_item = index;
 
-    window_invalidate(w);
+    w->Invalidate();
 }
 
 /**
@@ -1640,33 +1532,10 @@ void window_guest_rides_scroll_mouse_over(rct_window* w, int32_t scrollIndex, in
  */
 void window_guest_rides_invalidate(rct_window* w)
 {
-    if (window_guest_page_widgets[w->page] != w->widgets)
-    {
-        w->widgets = window_guest_page_widgets[w->page];
-        window_init_scroll_widgets(w);
-    }
-
-    w->pressed_widgets |= 1ULL << (w->page + WIDX_TAB_1);
-
-    Peep* peep = GET_PEEP(w->number);
-    set_format_arg(0, uint16_t, peep->name_string_idx);
-    set_format_arg(2, uint32_t, peep->id);
-
-    window_guest_rides_widgets[WIDX_BACKGROUND].right = w->width - 1;
-    window_guest_rides_widgets[WIDX_BACKGROUND].bottom = w->height - 1;
-
-    window_guest_rides_widgets[WIDX_PAGE_BACKGROUND].right = w->width - 1;
-    window_guest_rides_widgets[WIDX_PAGE_BACKGROUND].bottom = w->height - 1;
-
-    window_guest_rides_widgets[WIDX_TITLE].right = w->width - 2;
-
-    window_guest_rides_widgets[WIDX_CLOSE].left = w->width - 13;
-    window_guest_rides_widgets[WIDX_CLOSE].right = w->width - 3;
+    window_guest_common_invalidate(w);
 
     window_guest_rides_widgets[WIDX_RIDE_SCROLL].right = w->width - 4;
     window_guest_rides_widgets[WIDX_RIDE_SCROLL].bottom = w->height - 15;
-
-    window_align_tabs(w, WIDX_TAB_1, WIDX_TAB_6);
 }
 
 /**
@@ -1675,40 +1544,42 @@ void window_guest_rides_invalidate(rct_window* w)
  */
 void window_guest_rides_paint(rct_window* w, rct_drawpixelinfo* dpi)
 {
-    window_draw_widgets(w, dpi);
+    WindowDrawWidgets(w, dpi);
     window_guest_overview_tab_paint(w, dpi);
     window_guest_stats_tab_paint(w, dpi);
     window_guest_rides_tab_paint(w, dpi);
     window_guest_finance_tab_paint(w, dpi);
     window_guest_thoughts_tab_paint(w, dpi);
     window_guest_inventory_tab_paint(w, dpi);
+    window_guest_debug_tab_paint(w, dpi);
 
-    Peep* peep = GET_PEEP(w->number);
-
-    // cx
-    int32_t x = w->x + window_guest_rides_widgets[WIDX_PAGE_BACKGROUND].left + 2;
-    // dx
-    int32_t y = w->y + window_guest_rides_widgets[WIDX_PAGE_BACKGROUND].top + 2;
-
-    gfx_draw_string_left(dpi, STR_GUEST_LABEL_RIDES_BEEN_ON, nullptr, COLOUR_BLACK, x, y);
-
-    y = w->y + window_guest_rides_widgets[WIDX_PAGE_BACKGROUND].bottom - 12;
-
-    rct_string_id ride_string_id = STR_PEEP_FAVOURITE_RIDE_NOT_AVAILABLE;
-    uint32_t ride_string_arguments = 0;
-    if (peep->favourite_ride != 0xFF)
+    const auto peep = GetGuest(w);
+    if (peep == nullptr)
     {
-        auto ride = get_ride(peep->favourite_ride);
-        if (ride != nullptr)
-        {
-            ride_string_arguments = ride->name_arguments;
-            ride_string_id = ride->name;
-        }
+        return;
     }
-    set_format_arg(0, rct_string_id, ride_string_id);
-    set_format_arg(2, uint32_t, ride_string_arguments);
 
-    gfx_draw_string_left_clipped(dpi, STR_FAVOURITE_RIDE, gCommonFormatArgs, COLOUR_BLACK, x, y, w->width - 14);
+    // cx dx
+    auto screenCoords = w->windowPos
+        + ScreenCoordsXY{ window_guest_rides_widgets[WIDX_PAGE_BACKGROUND].left + 2,
+                          window_guest_rides_widgets[WIDX_PAGE_BACKGROUND].top + 2 };
+
+    DrawTextBasic(dpi, screenCoords, STR_GUEST_LABEL_RIDES_BEEN_ON);
+
+    screenCoords.y = w->windowPos.y + window_guest_rides_widgets[WIDX_PAGE_BACKGROUND].bottom - 12;
+
+    auto ft = Formatter();
+    auto ride = get_ride(peep->FavouriteRide);
+    if (ride != nullptr)
+    {
+        ride->FormatNameTo(ft);
+    }
+    else
+    {
+        ft.Add<rct_string_id>(STR_PEEP_FAVOURITE_RIDE_NOT_AVAILABLE);
+    }
+
+    DrawTextEllipsised(dpi, screenCoords, w->width - 14, STR_FAVOURITE_RIDE, ft);
 }
 
 /**
@@ -1717,13 +1588,8 @@ void window_guest_rides_paint(rct_window* w, rct_drawpixelinfo* dpi)
  */
 void window_guest_rides_scroll_paint(rct_window* w, rct_drawpixelinfo* dpi, int32_t scrollIndex)
 {
-    int32_t left = dpi->x;
-    int32_t right = dpi->x + dpi->width - 1;
-    int32_t top = dpi->y;
-    int32_t bottom = dpi->y + dpi->height - 1;
-
     auto colour = ColourMapA[w->colours[1]].mid_light;
-    gfx_fill_rect(dpi, left, top, right, bottom, colour);
+    gfx_fill_rect(dpi, { { dpi->x, dpi->y }, { dpi->x + dpi->width - 1, dpi->y + dpi->height - 1 } }, colour);
 
     for (int32_t list_index = 0; list_index < w->no_list_items; list_index++)
     {
@@ -1731,27 +1597,18 @@ void window_guest_rides_scroll_paint(rct_window* w, rct_drawpixelinfo* dpi, int3
         rct_string_id stringId = STR_BLACK_STRING;
         if (list_index == w->selected_list_item)
         {
-            gfx_filter_rect(dpi, 0, y, 800, y + 9, PALETTE_DARKEN_1);
+            gfx_filter_rect(dpi, 0, y, 800, y + 9, FilterPaletteID::PaletteDarken1);
             stringId = STR_WINDOW_COLOUR_2_STRINGID;
         }
 
         auto ride = get_ride(w->list_item_positions[list_index]);
         if (ride != nullptr)
         {
-            set_format_arg(0, rct_string_id, ride->name);
-            set_format_arg(2, uint32_t, ride->name_arguments);
-            gfx_draw_string_left(dpi, stringId, gCommonFormatArgs, COLOUR_BLACK, 0, y - 1);
+            auto ft = Formatter();
+            ride->FormatNameTo(ft);
+            DrawTextBasic(dpi, { 0, y - 1 }, stringId, ft);
         }
     }
-}
-
-/**
- *
- *  rct2: 0x00697C16
- */
-void window_guest_finance_resize(rct_window* w)
-{
-    window_set_resize(w, 210, 148, 210, 148);
 }
 
 /**
@@ -1768,141 +1625,117 @@ void window_guest_finance_update(rct_window* w)
 
 /**
  *
- *  rct2: 0x00697968
- */
-void window_guest_finance_invalidate(rct_window* w)
-{
-    if (window_guest_page_widgets[w->page] != w->widgets)
-    {
-        w->widgets = window_guest_page_widgets[w->page];
-        window_init_scroll_widgets(w);
-    }
-
-    w->pressed_widgets |= 1ULL << (w->page + WIDX_TAB_1);
-
-    Peep* peep = GET_PEEP(w->number);
-
-    set_format_arg(0, rct_string_id, peep->name_string_idx);
-    set_format_arg(2, uint32_t, peep->id);
-
-    window_guest_finance_widgets[WIDX_BACKGROUND].right = w->width - 1;
-    window_guest_finance_widgets[WIDX_BACKGROUND].bottom = w->height - 1;
-
-    window_guest_finance_widgets[WIDX_PAGE_BACKGROUND].right = w->width - 1;
-    window_guest_finance_widgets[WIDX_PAGE_BACKGROUND].bottom = w->height - 1;
-
-    window_guest_finance_widgets[WIDX_TITLE].right = w->width - 2;
-
-    window_guest_finance_widgets[WIDX_CLOSE].left = w->width - 13;
-    window_guest_finance_widgets[WIDX_CLOSE].right = w->width - 3;
-
-    window_align_tabs(w, WIDX_TAB_1, WIDX_TAB_6);
-}
-
-/**
- *
  *  rct2: 0x00697A08
  */
 void window_guest_finance_paint(rct_window* w, rct_drawpixelinfo* dpi)
 {
-    window_draw_widgets(w, dpi);
+    WindowDrawWidgets(w, dpi);
     window_guest_overview_tab_paint(w, dpi);
     window_guest_stats_tab_paint(w, dpi);
     window_guest_rides_tab_paint(w, dpi);
     window_guest_finance_tab_paint(w, dpi);
     window_guest_thoughts_tab_paint(w, dpi);
     window_guest_inventory_tab_paint(w, dpi);
+    window_guest_debug_tab_paint(w, dpi);
 
-    Peep* peep = GET_PEEP(w->number);
+    const auto peep = GetGuest(w);
+    if (peep == nullptr)
+    {
+        return;
+    }
 
-    // cx
-    int32_t x = w->x + window_guest_finance_widgets[WIDX_PAGE_BACKGROUND].left + 4;
-    // dx
-    int32_t y = w->y + window_guest_finance_widgets[WIDX_PAGE_BACKGROUND].top + 4;
+    // cx dx
+    auto screenCoords = w->windowPos
+        + ScreenCoordsXY{ window_guest_finance_widgets[WIDX_PAGE_BACKGROUND].left + 4,
+                          window_guest_finance_widgets[WIDX_PAGE_BACKGROUND].top + 4 };
 
     // Cash in pocket
-    set_format_arg(0, money32, peep->cash_in_pocket);
-    gfx_draw_string_left(dpi, STR_GUEST_STAT_CASH_IN_POCKET, gCommonFormatArgs, COLOUR_BLACK, x, y);
+    {
+        auto ft = Formatter();
+        ft.Add<money32>(peep->CashInPocket);
+        DrawTextBasic(dpi, screenCoords, STR_GUEST_STAT_CASH_IN_POCKET, ft);
+        screenCoords.y += LIST_ROW_HEIGHT;
+    }
 
     // Cash spent
-    y += LIST_ROW_HEIGHT;
-    set_format_arg(0, money32, peep->cash_spent);
-    gfx_draw_string_left(dpi, STR_GUEST_STAT_CASH_SPENT, gCommonFormatArgs, COLOUR_BLACK, x, y);
+    {
+        auto ft = Formatter();
+        ft.Add<money32>(peep->CashSpent);
+        DrawTextBasic(dpi, screenCoords, STR_GUEST_STAT_CASH_SPENT, ft);
+        screenCoords.y += LIST_ROW_HEIGHT * 2;
+    }
 
-    y += LIST_ROW_HEIGHT * 2;
-    gfx_fill_rect_inset(dpi, x, y - 6, x + 179, y - 5, w->colours[1], INSET_RECT_FLAG_BORDER_INSET);
+    gfx_fill_rect_inset(
+        dpi, { screenCoords - ScreenCoordsXY{ 0, 6 }, screenCoords + ScreenCoordsXY{ 179, -5 } }, w->colours[1],
+        INSET_RECT_FLAG_BORDER_INSET);
 
     // Paid to enter
-    set_format_arg(0, money32, peep->paid_to_enter);
-    gfx_draw_string_left(dpi, STR_GUEST_EXPENSES_ENTRANCE_FEE, gCommonFormatArgs, COLOUR_BLACK, x, y);
-
+    {
+        auto ft = Formatter();
+        ft.Add<money32>(peep->PaidToEnter);
+        DrawTextBasic(dpi, screenCoords, STR_GUEST_EXPENSES_ENTRANCE_FEE, ft);
+        screenCoords.y += LIST_ROW_HEIGHT;
+    }
     // Paid on rides
-    y += LIST_ROW_HEIGHT;
-    set_format_arg(0, money32, peep->paid_on_rides);
-    set_format_arg(4, uint16_t, peep->no_of_rides);
-    if (peep->no_of_rides != 1)
     {
-        gfx_draw_string_left(dpi, STR_GUEST_EXPENSES_RIDE_PLURAL, gCommonFormatArgs, COLOUR_BLACK, x, y);
+        auto ft = Formatter();
+        ft.Add<money32>(peep->PaidOnRides);
+        ft.Add<uint16_t>(peep->GuestNumRides);
+        if (peep->GuestNumRides != 1)
+        {
+            DrawTextBasic(dpi, screenCoords, STR_GUEST_EXPENSES_RIDE_PLURAL, ft);
+        }
+        else
+        {
+            DrawTextBasic(dpi, screenCoords, STR_GUEST_EXPENSES_RIDE, ft);
+        }
+        screenCoords.y += LIST_ROW_HEIGHT;
     }
-    else
-    {
-        gfx_draw_string_left(dpi, STR_GUEST_EXPENSES_RIDE, gCommonFormatArgs, COLOUR_BLACK, x, y);
-    }
-
     // Paid on food
-    y += LIST_ROW_HEIGHT;
-    set_format_arg(0, money32, peep->paid_on_food);
-    set_format_arg(4, uint16_t, peep->no_of_food);
-    if (peep->no_of_food != 1)
     {
-        gfx_draw_string_left(dpi, STR_GUEST_EXPENSES_FOOD_PLURAL, gCommonFormatArgs, COLOUR_BLACK, x, y);
-    }
-    else
-    {
-        gfx_draw_string_left(dpi, STR_GUEST_EXPENSES_FOOD, gCommonFormatArgs, COLOUR_BLACK, x, y);
+        auto ft = Formatter();
+        ft.Add<money32>(peep->PaidOnFood);
+        ft.Add<uint16_t>(peep->AmountOfFood);
+        if (peep->AmountOfFood != 1)
+        {
+            DrawTextBasic(dpi, screenCoords, STR_GUEST_EXPENSES_FOOD_PLURAL, ft);
+        }
+        else
+        {
+            DrawTextBasic(dpi, screenCoords, STR_GUEST_EXPENSES_FOOD, ft);
+        }
+        screenCoords.y += LIST_ROW_HEIGHT;
     }
 
     // Paid on drinks
-    y += LIST_ROW_HEIGHT;
-    set_format_arg(0, money32, peep->paid_on_drink);
-    set_format_arg(4, uint16_t, peep->no_of_drinks);
-    if (peep->no_of_drinks != 1)
     {
-        gfx_draw_string_left(dpi, STR_GUEST_EXPENSES_DRINK_PLURAL, gCommonFormatArgs, COLOUR_BLACK, x, y);
+        auto ft = Formatter();
+        ft.Add<money32>(peep->PaidOnDrink);
+        ft.Add<uint16_t>(peep->AmountOfDrinks);
+        if (peep->AmountOfDrinks != 1)
+        {
+            DrawTextBasic(dpi, screenCoords, STR_GUEST_EXPENSES_DRINK_PLURAL, ft);
+        }
+        else
+        {
+            DrawTextBasic(dpi, screenCoords, STR_GUEST_EXPENSES_DRINK, ft);
+        }
+        screenCoords.y += LIST_ROW_HEIGHT;
     }
-    else
-    {
-        gfx_draw_string_left(dpi, STR_GUEST_EXPENSES_DRINK, gCommonFormatArgs, COLOUR_BLACK, x, y);
-    }
-
     // Paid on souvenirs
-    y += LIST_ROW_HEIGHT;
-    set_format_arg(0, money32, peep->paid_on_souvenirs);
-    set_format_arg(4, uint16_t, peep->no_of_souvenirs);
-    if (peep->no_of_souvenirs != 1)
     {
-        gfx_draw_string_left(dpi, STR_GUEST_EXPENSES_SOUVENIR_PLURAL, gCommonFormatArgs, COLOUR_BLACK, x, y);
+        auto ft = Formatter();
+        ft.Add<money32>(peep->PaidOnSouvenirs);
+        ft.Add<uint16_t>(peep->AmountOfSouvenirs);
+        if (peep->AmountOfSouvenirs != 1)
+        {
+            DrawTextBasic(dpi, screenCoords, STR_GUEST_EXPENSES_SOUVENIR_PLURAL, ft);
+        }
+        else
+        {
+            DrawTextBasic(dpi, screenCoords, STR_GUEST_EXPENSES_SOUVENIR, ft);
+        }
     }
-    else
-    {
-        gfx_draw_string_left(dpi, STR_GUEST_EXPENSES_SOUVENIR, gCommonFormatArgs, COLOUR_BLACK, x, y);
-    }
-}
-
-/**
- *
- *  rct2: 0x00697E33
- */
-void window_guest_thoughts_resize(rct_window* w)
-{
-    Peep* peep = GET_PEEP(w->number);
-    if (peep->window_invalidate_flags & PEEP_INVALIDATE_PEEP_THOUGHTS)
-    {
-        peep->window_invalidate_flags &= ~PEEP_INVALIDATE_PEEP_THOUGHTS;
-        window_invalidate(w);
-    }
-
-    window_set_resize(w, 192, 159, 500, 450);
 }
 
 /**
@@ -1915,39 +1748,17 @@ void window_guest_thoughts_update(rct_window* w)
 
     widget_invalidate(w, WIDX_TAB_2);
     widget_invalidate(w, WIDX_TAB_5);
-}
 
-/**
- *
- *  rct2: 0x00697C8A
- */
-void window_guest_thoughts_invalidate(rct_window* w)
-{
-    if (window_guest_page_widgets[w->page] != w->widgets)
+    auto peep = GetGuest(w);
+    if (peep == nullptr)
     {
-        w->widgets = window_guest_page_widgets[w->page];
-        window_init_scroll_widgets(w);
+        return;
     }
-
-    w->pressed_widgets |= 1ULL << (w->page + WIDX_TAB_1);
-
-    Peep* peep = GET_PEEP(w->number);
-
-    set_format_arg(0, rct_string_id, peep->name_string_idx);
-    set_format_arg(2, uint32_t, peep->id);
-
-    window_guest_thoughts_widgets[WIDX_BACKGROUND].right = w->width - 1;
-    window_guest_thoughts_widgets[WIDX_BACKGROUND].bottom = w->height - 1;
-
-    window_guest_thoughts_widgets[WIDX_PAGE_BACKGROUND].right = w->width - 1;
-    window_guest_thoughts_widgets[WIDX_PAGE_BACKGROUND].bottom = w->height - 1;
-
-    window_guest_thoughts_widgets[WIDX_TITLE].right = w->width - 2;
-
-    window_guest_thoughts_widgets[WIDX_CLOSE].left = w->width - 13;
-    window_guest_thoughts_widgets[WIDX_CLOSE].right = w->width - 3;
-
-    window_align_tabs(w, WIDX_TAB_1, WIDX_TAB_6);
+    if (peep->WindowInvalidateFlags & PEEP_INVALIDATE_PEEP_THOUGHTS)
+    {
+        peep->WindowInvalidateFlags &= ~PEEP_INVALIDATE_PEEP_THOUGHTS;
+        w->Invalidate();
+    }
 }
 
 /**
@@ -1956,27 +1767,32 @@ void window_guest_thoughts_invalidate(rct_window* w)
  */
 void window_guest_thoughts_paint(rct_window* w, rct_drawpixelinfo* dpi)
 {
-    window_draw_widgets(w, dpi);
+    WindowDrawWidgets(w, dpi);
     window_guest_overview_tab_paint(w, dpi);
     window_guest_stats_tab_paint(w, dpi);
     window_guest_rides_tab_paint(w, dpi);
     window_guest_finance_tab_paint(w, dpi);
     window_guest_thoughts_tab_paint(w, dpi);
     window_guest_inventory_tab_paint(w, dpi);
+    window_guest_debug_tab_paint(w, dpi);
 
-    Peep* peep = GET_PEEP(w->number);
-
-    // cx
-    int32_t x = w->x + window_guest_thoughts_widgets[WIDX_PAGE_BACKGROUND].left + 4;
-    // dx
-    int32_t y = w->y + window_guest_thoughts_widgets[WIDX_PAGE_BACKGROUND].top + 4;
-
-    gfx_draw_string_left(dpi, STR_GUEST_RECENT_THOUGHTS_LABEL, nullptr, COLOUR_BLACK, x, y);
-
-    y += 10;
-    for (rct_peep_thought* thought = peep->thoughts; thought < &peep->thoughts[PEEP_MAX_THOUGHTS]; ++thought)
+    const auto peep = GetGuest(w);
+    if (peep == nullptr)
     {
-        if (thought->type == PEEP_THOUGHT_TYPE_NONE)
+        return;
+    }
+
+    // cx dx
+    auto screenCoords = w->windowPos
+        + ScreenCoordsXY{ window_guest_thoughts_widgets[WIDX_PAGE_BACKGROUND].left + 4,
+                          window_guest_thoughts_widgets[WIDX_PAGE_BACKGROUND].top + 4 };
+
+    DrawTextBasic(dpi, screenCoords, STR_GUEST_RECENT_THOUGHTS_LABEL);
+
+    screenCoords.y += 10;
+    for (rct_peep_thought* thought = peep->Thoughts; thought < &peep->Thoughts[PEEP_MAX_THOUGHTS]; ++thought)
+    {
+        if (thought->type == PeepThoughtType::None)
             return;
         if (thought->freshness == 0)
             continue;
@@ -1984,29 +1800,14 @@ void window_guest_thoughts_paint(rct_window* w, rct_drawpixelinfo* dpi)
         int32_t width = window_guest_thoughts_widgets[WIDX_PAGE_BACKGROUND].right
             - window_guest_thoughts_widgets[WIDX_PAGE_BACKGROUND].left - 8;
 
-        peep_thought_set_format_args(thought);
-        y += gfx_draw_string_left_wrapped(dpi, gCommonFormatArgs, x, y, width, STR_BLACK_STRING, COLOUR_BLACK);
+        auto ft = Formatter();
+        peep_thought_set_format_args(thought, ft);
+        screenCoords.y += DrawTextWrapped(dpi, screenCoords, width, STR_BLACK_STRING, ft, { FontSpriteBase::SMALL });
 
         // If this is the last visible line end drawing.
-        if (y > w->y + window_guest_thoughts_widgets[WIDX_PAGE_BACKGROUND].bottom - 32)
+        if (screenCoords.y > w->windowPos.y + window_guest_thoughts_widgets[WIDX_PAGE_BACKGROUND].bottom - 32)
             return;
     }
-}
-
-/**
- *
- *  rct2: 0x00698294
- */
-void window_guest_inventory_resize(rct_window* w)
-{
-    Peep* peep = GET_PEEP(w->number);
-    if (peep->window_invalidate_flags & PEEP_INVALIDATE_PEEP_INVENTORY)
-    {
-        peep->window_invalidate_flags &= ~PEEP_INVALIDATE_PEEP_INVENTORY;
-        window_invalidate(w);
-    }
-
-    window_set_resize(w, 192, 159, 500, 450);
 }
 
 /**
@@ -2019,114 +1820,129 @@ void window_guest_inventory_update(rct_window* w)
 
     widget_invalidate(w, WIDX_TAB_2);
     widget_invalidate(w, WIDX_TAB_6);
-}
 
-/**
- *
- *  rct2: 0x00697EE1
- */
-void window_guest_inventory_invalidate(rct_window* w)
-{
-    if (window_guest_page_widgets[w->page] != w->widgets)
+    auto peep = GetGuest(w);
+    if (peep == nullptr)
     {
-        w->widgets = window_guest_page_widgets[w->page];
-        window_init_scroll_widgets(w);
+        return;
     }
-
-    w->pressed_widgets |= 1ULL << (w->page + WIDX_TAB_1);
-
-    Peep* peep = GET_PEEP(w->number);
-
-    set_format_arg(0, rct_string_id, peep->name_string_idx);
-    set_format_arg(2, uint32_t, peep->id);
-
-    window_guest_inventory_widgets[WIDX_BACKGROUND].right = w->width - 1;
-    window_guest_inventory_widgets[WIDX_BACKGROUND].bottom = w->height - 1;
-
-    window_guest_inventory_widgets[WIDX_PAGE_BACKGROUND].right = w->width - 1;
-    window_guest_inventory_widgets[WIDX_PAGE_BACKGROUND].bottom = w->height - 1;
-
-    window_guest_inventory_widgets[WIDX_TITLE].right = w->width - 2;
-
-    window_guest_inventory_widgets[WIDX_CLOSE].left = w->width - 13;
-    window_guest_inventory_widgets[WIDX_CLOSE].right = w->width - 3;
-
-    window_align_tabs(w, WIDX_TAB_1, WIDX_TAB_6);
+    if (peep->WindowInvalidateFlags & PEEP_INVALIDATE_PEEP_INVENTORY)
+    {
+        peep->WindowInvalidateFlags &= ~PEEP_INVALIDATE_PEEP_INVENTORY;
+        w->Invalidate();
+    }
 }
 
-static rct_string_id window_guest_inventory_format_item(Peep* peep, int32_t item)
+static std::pair<rct_string_id, Formatter> window_guest_inventory_format_item(Peep* peep, ShopItem item)
 {
-    Ride* ride;
+    auto& park = OpenRCT2::GetContext()->GetGameState()->GetPark();
+    auto parkName = park.Name.c_str();
 
     // Default arguments
-    set_format_arg(0, uint32_t, ShopItems[item].Image);
-    set_format_arg(4, rct_string_id, ShopItems[item].Naming.Display);
-    set_format_arg(6, rct_string_id, gParkName);
-    set_format_arg(8, uint32_t, gParkNameArgs);
+    auto ft = Formatter();
+    ft.Add<uint32_t>(GetShopItemDescriptor(item).Image);
+    ft.Add<rct_string_id>(GetShopItemDescriptor(item).Naming.Display);
+    ft.Add<rct_string_id>(STR_STRING);
+    ft.Add<const char*>(parkName);
 
     // Special overrides
+    Ride* ride{};
     switch (item)
     {
-        case SHOP_ITEM_BALLOON:
-            set_format_arg(0, uint32_t, SPRITE_ID_PALETTE_COLOUR_1(peep->balloon_colour) | ShopItems[item].Image);
+        case ShopItem::Balloon:
+            ft.Rewind();
+            ft.Add<uint32_t>(SPRITE_ID_PALETTE_COLOUR_1(peep->BalloonColour) | GetShopItemDescriptor(item).Image);
             break;
-        case SHOP_ITEM_PHOTO:
-            ride = get_ride(peep->photo1_ride_ref);
-            set_format_arg(6, rct_string_id, ride->name);
-            set_format_arg(8, uint32_t, ride->name_arguments);
+        case ShopItem::Photo:
+            ride = get_ride(peep->Photo1RideRef);
+            if (ride != nullptr)
+            {
+                ft.Rewind();
+                ft.Increment(6);
+                ride->FormatNameTo(ft);
+            }
+
             break;
-        case SHOP_ITEM_UMBRELLA:
-            set_format_arg(0, uint32_t, SPRITE_ID_PALETTE_COLOUR_1(peep->umbrella_colour) | ShopItems[item].Image);
+        case ShopItem::Umbrella:
+            ft.Rewind();
+            ft.Add<uint32_t>(SPRITE_ID_PALETTE_COLOUR_1(peep->UmbrellaColour) | GetShopItemDescriptor(item).Image);
             break;
-        case SHOP_ITEM_VOUCHER:
-            switch (peep->voucher_type)
+        case ShopItem::Voucher:
+            switch (peep->VoucherType)
             {
                 case VOUCHER_TYPE_PARK_ENTRY_FREE:
-                    set_format_arg(6, rct_string_id, STR_PEEP_INVENTORY_VOUCHER_PARK_ENTRY_FREE);
-                    set_format_arg(8, rct_string_id, gParkName);
-                    set_format_arg(10, uint32_t, gParkNameArgs);
+                    ft.Rewind();
+                    ft.Increment(6);
+                    ft.Add<rct_string_id>(STR_PEEP_INVENTORY_VOUCHER_PARK_ENTRY_FREE);
+                    ft.Add<rct_string_id>(STR_STRING);
+                    ft.Add<const char*>(parkName);
                     break;
                 case VOUCHER_TYPE_RIDE_FREE:
-                    ride = get_ride(peep->voucher_arguments);
-                    set_format_arg(6, rct_string_id, STR_PEEP_INVENTORY_VOUCHER_RIDE_FREE);
-                    set_format_arg(8, rct_string_id, ride->name);
-                    set_format_arg(10, uint32_t, ride->name_arguments);
+                    ride = get_ride(peep->VoucherRideId);
+                    if (ride != nullptr)
+                    {
+                        ft.Rewind();
+                        ft.Increment(6);
+                        ft.Add<rct_string_id>(STR_PEEP_INVENTORY_VOUCHER_RIDE_FREE);
+                        ride->FormatNameTo(ft);
+                    }
                     break;
                 case VOUCHER_TYPE_PARK_ENTRY_HALF_PRICE:
-                    set_format_arg(6, rct_string_id, STR_PEEP_INVENTORY_VOUCHER_PARK_ENTRY_HALF_PRICE);
-                    set_format_arg(8, rct_string_id, gParkName);
-                    set_format_arg(10, uint32_t, gParkNameArgs);
+                    ft.Rewind();
+                    ft.Increment(6);
+                    ft.Add<rct_string_id>(STR_PEEP_INVENTORY_VOUCHER_PARK_ENTRY_HALF_PRICE);
+                    ft.Add<rct_string_id>(STR_STRING);
+                    ft.Add<const char*>(parkName);
                     break;
                 case VOUCHER_TYPE_FOOD_OR_DRINK_FREE:
-                    set_format_arg(6, rct_string_id, STR_PEEP_INVENTORY_VOUCHER_FOOD_OR_DRINK_FREE);
-                    set_format_arg(8, rct_string_id, ShopItems[peep->voucher_arguments].Naming.Singular);
+                    ft.Rewind();
+                    ft.Increment(6);
+                    ft.Add<rct_string_id>(STR_PEEP_INVENTORY_VOUCHER_FOOD_OR_DRINK_FREE);
+                    ft.Add<rct_string_id>(GetShopItemDescriptor(peep->VoucherShopItem).Naming.Singular);
                     break;
             }
             break;
-        case SHOP_ITEM_HAT:
-            set_format_arg(0, uint32_t, SPRITE_ID_PALETTE_COLOUR_1(peep->hat_colour) | ShopItems[item].Image);
+        case ShopItem::Hat:
+            ft.Rewind();
+            ft.Add<uint32_t>(SPRITE_ID_PALETTE_COLOUR_1(peep->HatColour) | GetShopItemDescriptor(item).Image);
             break;
-        case SHOP_ITEM_TSHIRT:
-            set_format_arg(0, uint32_t, SPRITE_ID_PALETTE_COLOUR_1(peep->tshirt_colour) | ShopItems[item].Image);
+        case ShopItem::TShirt:
+            ft.Rewind();
+            ft.Add<uint32_t>(SPRITE_ID_PALETTE_COLOUR_1(peep->TshirtColour) | GetShopItemDescriptor(item).Image);
             break;
-        case SHOP_ITEM_PHOTO2:
-            ride = get_ride(peep->photo2_ride_ref);
-            set_format_arg(6, rct_string_id, ride->name);
-            set_format_arg(8, uint32_t, ride->name_arguments);
+        case ShopItem::Photo2:
+            ride = get_ride(peep->Photo2RideRef);
+            if (ride != nullptr)
+            {
+                ft.Rewind();
+                ft.Increment(6);
+                ride->FormatNameTo(ft);
+            }
             break;
-        case SHOP_ITEM_PHOTO3:
-            ride = get_ride(peep->photo3_ride_ref);
-            set_format_arg(6, rct_string_id, ride->name);
-            set_format_arg(8, uint32_t, ride->name_arguments);
+        case ShopItem::Photo3:
+            ride = get_ride(peep->Photo3RideRef);
+            if (ride != nullptr)
+            {
+                ft.Rewind();
+                ft.Increment(6);
+                ride->FormatNameTo(ft);
+            }
             break;
-        case SHOP_ITEM_PHOTO4:
-            ride = get_ride(peep->photo4_ride_ref);
-            set_format_arg(6, rct_string_id, ride->name);
-            set_format_arg(8, uint32_t, ride->name_arguments);
+        case ShopItem::Photo4:
+            ride = get_ride(peep->Photo4RideRef);
+            if (ride != nullptr)
+            {
+                ft.Rewind();
+                ft.Increment(6);
+                ride->FormatNameTo(ft);
+            }
+            break;
+        default:
+            // This switch handles only items visible in peep window
             break;
     }
 
-    return STR_GUEST_ITEM_FORMAT;
+    return std::make_pair(STR_GUEST_ITEM_FORMAT, ft);
 }
 
 /**
@@ -2135,43 +1951,146 @@ static rct_string_id window_guest_inventory_format_item(Peep* peep, int32_t item
  */
 void window_guest_inventory_paint(rct_window* w, rct_drawpixelinfo* dpi)
 {
-    window_draw_widgets(w, dpi);
+    WindowDrawWidgets(w, dpi);
     window_guest_overview_tab_paint(w, dpi);
     window_guest_stats_tab_paint(w, dpi);
     window_guest_rides_tab_paint(w, dpi);
     window_guest_finance_tab_paint(w, dpi);
     window_guest_thoughts_tab_paint(w, dpi);
     window_guest_inventory_tab_paint(w, dpi);
+    window_guest_debug_tab_paint(w, dpi);
 
-    const auto guest = (GET_PEEP(w->number))->AsGuest();
-    if (guest != nullptr)
+    const auto guest = GetGuest(w);
+    if (guest == nullptr)
     {
-        rct_widget* pageBackgroundWidget = &window_guest_inventory_widgets[WIDX_PAGE_BACKGROUND];
-        int32_t x = w->x + pageBackgroundWidget->left + 4;
-        int32_t y = w->y + pageBackgroundWidget->top + 2;
-        int32_t itemNameWidth = pageBackgroundWidget->right - pageBackgroundWidget->left - 8;
-
-        int32_t maxY = w->y + w->height - 22;
-        int32_t numItems = 0;
-
-        gfx_draw_string_left(dpi, STR_CARRYING, nullptr, COLOUR_BLACK, x, y);
-        y += 10;
-
-        for (int32_t item = 0; item < SHOP_ITEM_COUNT; item++)
-        {
-            if (y >= maxY)
-                break;
-            if (!guest->HasItem(item))
-                continue;
-
-            rct_string_id stringId = window_guest_inventory_format_item(guest, item);
-            y += gfx_draw_string_left_wrapped(dpi, gCommonFormatArgs, x, y, itemNameWidth, stringId, COLOUR_BLACK);
-            numItems++;
-        }
-
-        if (numItems == 0)
-        {
-            gfx_draw_string_left(dpi, STR_NOTHING, nullptr, COLOUR_BLACK, x, y);
-        }
+        return;
     }
+
+    rct_widget* pageBackgroundWidget = &window_guest_inventory_widgets[WIDX_PAGE_BACKGROUND];
+    auto screenCoords = w->windowPos + ScreenCoordsXY{ pageBackgroundWidget->left + 4, pageBackgroundWidget->top + 2 };
+    int32_t itemNameWidth = pageBackgroundWidget->width() - 8;
+
+    int32_t maxY = w->windowPos.y + w->height - 22;
+    int32_t numItems = 0;
+
+    DrawTextBasic(dpi, screenCoords, STR_CARRYING);
+    screenCoords.y += 10;
+
+    for (ShopItem item = ShopItem::Balloon; item < ShopItem::Count; item++)
+    {
+        if (screenCoords.y >= maxY)
+            break;
+        if (!guest->HasItem(item))
+            continue;
+
+        auto [stringId, ft] = window_guest_inventory_format_item(guest, item);
+        screenCoords.y += DrawTextWrapped(dpi, screenCoords, itemNameWidth, stringId, ft);
+        numItems++;
+    }
+
+    if (numItems == 0)
+    {
+        DrawTextBasic(dpi, screenCoords, STR_NOTHING);
+    }
+}
+
+/**
+ *
+ *  rct2: 0x00698315
+ */
+void window_guest_debug_update(rct_window* w)
+{
+    w->frame_no++;
+    w->Invalidate();
+}
+
+void window_guest_debug_paint(rct_window* w, rct_drawpixelinfo* dpi)
+{
+    char buffer[512]{};
+    char buffer2[512]{};
+
+    WindowDrawWidgets(w, dpi);
+    window_guest_overview_tab_paint(w, dpi);
+    window_guest_stats_tab_paint(w, dpi);
+    window_guest_rides_tab_paint(w, dpi);
+    window_guest_finance_tab_paint(w, dpi);
+    window_guest_thoughts_tab_paint(w, dpi);
+    window_guest_inventory_tab_paint(w, dpi);
+    window_guest_debug_tab_paint(w, dpi);
+
+    const auto peep = GetGuest(w);
+    if (peep == nullptr)
+    {
+        return;
+    }
+    auto screenCoords = w->windowPos
+        + ScreenCoordsXY{ window_guest_debug_widgets[WIDX_PAGE_BACKGROUND].left + 4,
+                          window_guest_debug_widgets[WIDX_PAGE_BACKGROUND].top + 4 };
+    {
+        auto ft = Formatter();
+        ft.Add<uint32_t>(peep->sprite_index);
+        DrawTextBasic(dpi, screenCoords, STR_PEEP_DEBUG_SPRITE_INDEX, ft);
+    }
+    screenCoords.y += LIST_ROW_HEIGHT;
+    {
+        auto ft = Formatter();
+        ft.Add<int32_t>(peep->x);
+        ft.Add<int32_t>(peep->y);
+        ft.Add<int32_t>(peep->z);
+        DrawTextBasic(dpi, screenCoords, STR_PEEP_DEBUG_POSITION, ft);
+    }
+    screenCoords.y += LIST_ROW_HEIGHT;
+    {
+        auto ft = Formatter();
+        ft.Add<int32_t>(peep->NextLoc.x);
+        ft.Add<int32_t>(peep->NextLoc.y);
+        ft.Add<int32_t>(peep->NextLoc.z);
+        format_string(buffer, sizeof(buffer), STR_PEEP_DEBUG_NEXT, ft.Data());
+        if (peep->GetNextIsSurface())
+        {
+            format_string(buffer2, sizeof(buffer2), STR_PEEP_DEBUG_NEXT_SURFACE, nullptr);
+            safe_strcat(buffer, buffer2, sizeof(buffer));
+        }
+        if (peep->GetNextIsSloped())
+        {
+            auto ft2 = Formatter();
+            ft2.Add<int32_t>(peep->GetNextDirection());
+            format_string(buffer2, sizeof(buffer2), STR_PEEP_DEBUG_NEXT_SLOPE, ft2.Data());
+            safe_strcat(buffer, buffer2, sizeof(buffer));
+        }
+        gfx_draw_string(dpi, screenCoords, buffer, {});
+    }
+    screenCoords.y += LIST_ROW_HEIGHT;
+    {
+        auto ft = Formatter();
+        ft.Add<int32_t>(peep->DestinationX);
+        ft.Add<int32_t>(peep->DestinationY);
+        ft.Add<int32_t>(peep->DestinationTolerance);
+        DrawTextBasic(dpi, screenCoords, STR_PEEP_DEBUG_DEST, ft);
+    }
+    screenCoords.y += LIST_ROW_HEIGHT;
+    {
+        auto ft = Formatter();
+        ft.Add<int32_t>(peep->PathfindGoal.x);
+        ft.Add<int32_t>(peep->PathfindGoal.y);
+        ft.Add<int32_t>(peep->PathfindGoal.z);
+        ft.Add<int32_t>(peep->PathfindGoal.direction);
+        DrawTextBasic(dpi, screenCoords, STR_PEEP_DEBUG_PATHFIND_GOAL, ft);
+    }
+    screenCoords.y += LIST_ROW_HEIGHT;
+    DrawTextBasic(dpi, screenCoords, STR_PEEP_DEBUG_PATHFIND_HISTORY);
+    screenCoords.y += LIST_ROW_HEIGHT;
+
+    screenCoords.x += 10;
+    for (auto& point : peep->PathfindHistory)
+    {
+        auto ft = Formatter();
+        ft.Add<int32_t>(point.x);
+        ft.Add<int32_t>(point.y);
+        ft.Add<int32_t>(point.z);
+        ft.Add<int32_t>(point.direction);
+        DrawTextBasic(dpi, screenCoords, STR_PEEP_DEBUG_PATHFIND_HISTORY_ITEM, ft);
+        screenCoords.y += LIST_ROW_HEIGHT;
+    }
+    screenCoords.x -= 10;
 }

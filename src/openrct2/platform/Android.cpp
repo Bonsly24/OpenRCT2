@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (c) 2014-2019 OpenRCT2 developers
+ * Copyright (c) 2014-2020 OpenRCT2 developers
  *
  * For a complete list of all authors, please refer to contributors.md
  * Interested in contributing? Visit https://github.com/OpenRCT2/OpenRCT2
@@ -31,14 +31,14 @@ uint16_t platform_get_locale_language()
     return LANGUAGE_ENGLISH_UK;
 }
 
-uint8_t platform_get_locale_currency()
+CurrencyType platform_get_locale_currency()
 {
     return platform_get_currency_value(NULL);
 }
 
-uint8_t platform_get_locale_measurement_format()
+MeasurementFormat platform_get_locale_measurement_format()
 {
-    return MEASUREMENT_FORMAT_METRIC;
+    return MeasurementFormat::Metric;
 }
 
 float platform_get_default_scale()
@@ -85,7 +85,7 @@ AndroidClassLoader::AndroidClassLoader()
     // Take an arbitrary class. While the class does not really matter, it
     // makes sense to use one that's most likely already loaded and is unlikely
     // to be removed from code.
-    auto randomClass = env->FindClass("website/openrct2/MainActivity");
+    auto randomClass = env->FindClass("io/openrct2/MainActivity");
     jclass classClass = env->GetObjectClass(randomClass);
 
     // Get its class loader

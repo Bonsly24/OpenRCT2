@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (c) 2014-2019 OpenRCT2 developers
+ * Copyright (c) 2014-2020 OpenRCT2 developers
  *
  * For a complete list of all authors, please refer to contributors.md
  * Interested in contributing? Visit https://github.com/OpenRCT2/OpenRCT2
@@ -19,16 +19,21 @@
 #include <openrct2-ui/windows/Window.h>
 #include <openrct2/Context.h>
 #include <openrct2/Game.h>
+#include <openrct2/GameState.h>
 #include <openrct2/Input.h>
-#include <openrct2/actions/ParkSetNameAction.hpp>
+#include <openrct2/actions/ParkSetNameAction.h>
 #include <openrct2/config/Config.h>
 #include <openrct2/localisation/Date.h>
 #include <openrct2/localisation/Localisation.h>
 #include <openrct2/management/Award.h>
+#include <openrct2/ride/RideData.h>
 #include <openrct2/scenario/Scenario.h>
 #include <openrct2/util/Util.h>
 #include <openrct2/world/Entrance.h>
 #include <openrct2/world/Park.h>
+
+static constexpr const rct_string_id WINDOW_TITLE = STR_STRINGID;
+static constexpr const int32_t WH = 224;
 
 // clang-format off
 enum WINDOW_PARK_PAGE {
@@ -73,62 +78,60 @@ enum WINDOW_PARK_WIDGET_IDX {
 
 #pragma region Widgets
 
-#define MAIN_PARK_WIDGETS \
-    { WWT_FRAME,            0,  0,      229,    0,      223,    0xFFFFFFFF,                     STR_NONE },                     /* panel / background */    \
-    { WWT_CAPTION,          0,  1,      228,    1,      14,     STR_STRINGID,                   STR_WINDOW_TITLE_TIP },         /* title bar          */    \
-    { WWT_CLOSEBOX,         0,  217,    227,    2,      13,     STR_CLOSE_X,                    STR_CLOSE_WINDOW_TIP },         /* close x button     */    \
-    { WWT_RESIZE,           1,  0,      229,    43,     173,    0xFFFFFFFF,                     STR_NONE },                     /* tab content panel  */    \
-    { WWT_TAB,              1,  3,      33,     17,     43,     IMAGE_TYPE_REMAP | SPR_TAB,           STR_PARK_ENTRANCE_TAB_TIP },    /* tab 1              */    \
-    { WWT_TAB,              1,  34,     64,     17,     43,     IMAGE_TYPE_REMAP | SPR_TAB,           STR_PARK_RATING_TAB_TIP },      /* tab 2              */    \
-    { WWT_TAB,              1,  65,     95,     17,     43,     IMAGE_TYPE_REMAP | SPR_TAB,           STR_PARK_GUESTS_TAB_TIP },      /* tab 3              */    \
-    { WWT_TAB,              1,  96,     126,    17,     43,     IMAGE_TYPE_REMAP | SPR_TAB,           STR_PARK_PRICE_TAB_TIP },       /* tab 4              */    \
-    { WWT_TAB,              1,  127,    157,    17,     43,     IMAGE_TYPE_REMAP | SPR_TAB,           STR_PARK_STATS_TAB_TIP },       /* tab 5              */    \
-    { WWT_TAB,              1,  158,    188,    17,     43,     IMAGE_TYPE_REMAP | SPR_TAB,           STR_PARK_OBJECTIVE_TAB_TIP },   /* tab 6              */    \
-    { WWT_TAB,              1,  189,    219,    17,     43,     IMAGE_TYPE_REMAP | SPR_TAB,           STR_PARK_AWARDS_TAB_TIP }       /* tab 7              */
+#define MAIN_PARK_WIDGETS(WW) \
+    WINDOW_SHIM(WINDOW_TITLE, WW, WH), \
+    MakeWidget({  0, 43}, {WW, 131}, WindowWidgetType::Resize, WindowColour::Secondary), /* tab content panel */ \
+    MakeTab   ({  3, 17}, STR_PARK_ENTRANCE_TAB_TIP                     ), /* tab 1 */ \
+    MakeTab   ({ 34, 17}, STR_PARK_RATING_TAB_TIP                       ), /* tab 2 */ \
+    MakeTab   ({ 65, 17}, STR_PARK_GUESTS_TAB_TIP                       ), /* tab 3 */ \
+    MakeTab   ({ 96, 17}, STR_PARK_PRICE_TAB_TIP                        ), /* tab 4 */ \
+    MakeTab   ({127, 17}, STR_PARK_STATS_TAB_TIP                        ), /* tab 5 */ \
+    MakeTab   ({158, 17}, STR_PARK_OBJECTIVE_TAB_TIP                    ), /* tab 6 */ \
+    MakeTab   ({189, 17}, STR_PARK_AWARDS_TAB_TIP                       )  /* tab 7 */
 
 static rct_widget window_park_entrance_widgets[] = {
-    MAIN_PARK_WIDGETS,
-    { WWT_VIEWPORT,         1,  3,      204,    46,     160,    0xFFFFFFFF,                     STR_NONE },                         // viewport
-    { WWT_LABEL_CENTRED,    1,  3,      204,    161,    171,    0xFFFFFFFF,                     STR_NONE },                         // status
-    { WWT_FLATBTN,          1,  205,    228,    49,     72,     0xFFFFFFFF,                     STR_OPEN_OR_CLOSE_PARK_TIP },       // open / close
-    { WWT_FLATBTN,          1,  205,    228,    73,     96,     SPR_BUY_LAND_RIGHTS,            STR_BUY_LAND_AND_CONSTRUCTION_RIGHTS_TIP },         // buy land rights
-    { WWT_FLATBTN,          1,  205,    228,    97,     120,    SPR_LOCATE,                     STR_LOCATE_SUBJECT_TIP },           // locate
-    { WWT_FLATBTN,          1,  205,    228,    121,    144,    SPR_RENAME,                     STR_NAME_PARK_TIP },                // rename
-    { WWT_IMGBTN,           1,  210,    223,    51,     65,     SPR_G2_RCT1_CLOSE_BUTTON_0,     STR_CLOSE_PARK_TIP },
-    { WWT_IMGBTN,           1,  210,    223,    66,     79,     SPR_G2_RCT1_OPEN_BUTTON_0,      STR_OPEN_PARK_TIP },
+    MAIN_PARK_WIDGETS(230),
+    MakeWidget({  3,  46}, {202, 115}, WindowWidgetType::Viewport,      WindowColour::Secondary                                                                      ), // viewport
+    MakeWidget({  3, 161}, {202,  11}, WindowWidgetType::LabelCentred, WindowColour::Secondary                                                                      ), // status
+    MakeWidget({205,  49}, { 24,  24}, WindowWidgetType::FlatBtn,       WindowColour::Secondary, 0xFFFFFFFF,                 STR_OPEN_OR_CLOSE_PARK_TIP              ), // open / close
+    MakeWidget({205,  73}, { 24,  24}, WindowWidgetType::FlatBtn,       WindowColour::Secondary, SPR_BUY_LAND_RIGHTS,        STR_BUY_LAND_AND_CONSTRUCTION_RIGHTS_TIP), // buy land rights
+    MakeWidget({205,  97}, { 24,  24}, WindowWidgetType::FlatBtn,       WindowColour::Secondary, SPR_LOCATE,                 STR_LOCATE_SUBJECT_TIP                  ), // locate
+    MakeWidget({205, 121}, { 24,  24}, WindowWidgetType::FlatBtn,       WindowColour::Secondary, SPR_RENAME,                 STR_NAME_PARK_TIP                       ), // rename
+    MakeWidget({210,  51}, { 14,  15}, WindowWidgetType::ImgBtn,        WindowColour::Secondary, SPR_G2_RCT1_CLOSE_BUTTON_0, STR_CLOSE_PARK_TIP                      ),
+    MakeWidget({210,  66}, { 14,  14}, WindowWidgetType::ImgBtn,        WindowColour::Secondary, SPR_G2_RCT1_OPEN_BUTTON_0,  STR_OPEN_PARK_TIP                       ),
     { WIDGETS_END },
 };
 
 static rct_widget window_park_rating_widgets[] = {
-    MAIN_PARK_WIDGETS,
+    MAIN_PARK_WIDGETS(255),
     { WIDGETS_END },
 };
 
 static rct_widget window_park_guests_widgets[] = {
-    MAIN_PARK_WIDGETS,
+    MAIN_PARK_WIDGETS(255),
     { WIDGETS_END },
 };
 
 static rct_widget window_park_price_widgets[] = {
-    MAIN_PARK_WIDGETS,
-    { WWT_LABEL,            1,  21,     146,    50,     61,     STR_ADMISSION_PRICE,            STR_NONE },                         //
-      SPINNER_WIDGETS      (1,  147,    222,    50,     61,     STR_ARG_6_CURRENCY2DP,          STR_NONE), // Price (3 widgets)
+    MAIN_PARK_WIDGETS(230),
+    MakeWidget        ({ 21, 50}, {126, 14}, WindowWidgetType::Label,   WindowColour::Secondary, STR_ADMISSION_PRICE),
+    MakeSpinnerWidgets({147, 50}, { 76, 14}, WindowWidgetType::Spinner, WindowColour::Secondary                     ), // Price (3 widgets)
     { WIDGETS_END },
 };
 
 static rct_widget window_park_stats_widgets[] = {
-    MAIN_PARK_WIDGETS,
+    MAIN_PARK_WIDGETS(230),
     { WIDGETS_END },
 };
 
 static rct_widget window_park_objective_widgets[] = {
-    MAIN_PARK_WIDGETS,
-    { WWT_BUTTON,           1,  7,      222,    209,    220,    STR_ENTER_NAME_INTO_SCENARIO_CHART,         STR_NONE },             // enter name
+    MAIN_PARK_WIDGETS(230),
+    MakeWidget({7, 207}, {216, 14}, WindowWidgetType::Button, WindowColour::Secondary, STR_ENTER_NAME_INTO_SCENARIO_CHART), // enter name
     { WIDGETS_END },
 };
 
 static rct_widget window_park_awards_widgets[] = {
-    MAIN_PARK_WIDGETS,
+    MAIN_PARK_WIDGETS(230),
     { WIDGETS_END },
 };
 
@@ -194,222 +197,74 @@ static void window_park_awards_update(rct_window *w);
 static void window_park_awards_invalidate(rct_window *w);
 static void window_park_awards_paint(rct_window *w, rct_drawpixelinfo *dpi);
 
-static rct_window_event_list window_park_entrance_events = {
-    window_park_entrance_close,
-    window_park_entrance_mouseup,
-    window_park_entrance_resize,
-    window_park_entrance_mousedown,
-    window_park_entrance_dropdown,
-    nullptr,
-    window_park_entrance_update,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    window_park_entrance_textinput,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    window_park_entrance_invalidate,
-    window_park_entrance_paint,
-    nullptr
-};
+static rct_window_event_list window_park_entrance_events([](auto& events)
+{
+    events.close = &window_park_entrance_close;
+    events.mouse_up = &window_park_entrance_mouseup;
+    events.resize = &window_park_entrance_resize;
+    events.mouse_down = &window_park_entrance_mousedown;
+    events.dropdown = &window_park_entrance_dropdown;
+    events.update = &window_park_entrance_update;
+    events.text_input = &window_park_entrance_textinput;
+    events.invalidate = &window_park_entrance_invalidate;
+    events.paint = &window_park_entrance_paint;
+});
 
-static rct_window_event_list window_park_rating_events = {
-    nullptr,
-    window_park_rating_mouseup,
-    window_park_rating_resize,
-    nullptr,
-    nullptr,
-    nullptr,
-    window_park_rating_update,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    window_park_rating_invalidate,
-    window_park_rating_paint,
-    nullptr
-};
+static rct_window_event_list window_park_rating_events([](auto& events)
+{
+    events.mouse_up = &window_park_rating_mouseup;
+    events.resize = &window_park_rating_resize;
+    events.update = &window_park_rating_update;
+    events.invalidate = &window_park_rating_invalidate;
+    events.paint = &window_park_rating_paint;
+});
 
-static rct_window_event_list window_park_guests_events = {
-    nullptr,
-    window_park_guests_mouseup,
-    window_park_guests_resize,
-    nullptr,
-    nullptr,
-    nullptr,
-    window_park_guests_update,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    window_park_guests_invalidate,
-    window_park_guests_paint,
-    nullptr
-};
+static rct_window_event_list window_park_guests_events([](auto& events)
+{
+    events.mouse_up = &window_park_guests_mouseup;
+    events.resize = &window_park_guests_resize;
+    events.update = &window_park_guests_update;
+    events.invalidate = &window_park_guests_invalidate;
+    events.paint = &window_park_guests_paint;
+});
 
-static rct_window_event_list window_park_price_events = {
-    nullptr,
-    window_park_price_mouseup,
-    window_park_price_resize,
-    window_park_price_mousedown,
-    nullptr,
-    nullptr,
-    window_park_price_update,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    window_park_price_invalidate,
-    window_park_price_paint,
-    nullptr
-};
+static rct_window_event_list window_park_price_events([](auto& events)
+{
+    events.mouse_up = &window_park_price_mouseup;
+    events.resize = &window_park_price_resize;
+    events.mouse_down = &window_park_price_mousedown;
+    events.update = &window_park_price_update;
+    events.invalidate = &window_park_price_invalidate;
+    events.paint = &window_park_price_paint;
+});
 
-static rct_window_event_list window_park_stats_events = {
-    nullptr,
-    window_park_stats_mouseup,
-    window_park_stats_resize,
-    nullptr,
-    nullptr,
-    nullptr,
-    window_park_stats_update,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    window_park_stats_invalidate,
-    window_park_stats_paint,
-    nullptr
-};
+static rct_window_event_list window_park_stats_events([](auto& events)
+{
+    events.mouse_up = &window_park_stats_mouseup;
+    events.resize = &window_park_stats_resize;
+    events.update = &window_park_stats_update;
+    events.invalidate = &window_park_stats_invalidate;
+    events.paint = &window_park_stats_paint;
+});
 
-static rct_window_event_list window_park_objective_events = {
-    nullptr,
-    window_park_objective_mouseup,
-    window_park_objective_resize,
-    nullptr,
-    nullptr,
-    nullptr,
-    window_park_objective_update,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    window_park_objective_textinput,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    window_park_objective_invalidate,
-    window_park_objective_paint,
-    nullptr
-};
+static rct_window_event_list window_park_objective_events([](auto& events)
+{
+    events.mouse_up = &window_park_objective_mouseup;
+    events.resize = &window_park_objective_resize;
+    events.update = &window_park_objective_update;
+    events.text_input = &window_park_objective_textinput;
+    events.invalidate = &window_park_objective_invalidate;
+    events.paint = &window_park_objective_paint;
+});
 
-static rct_window_event_list window_park_awards_events = {
-    nullptr,
-    window_park_awards_mouseup,
-    window_park_awards_resize,
-    nullptr,
-    nullptr,
-    nullptr,
-    window_park_awards_update,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    window_park_awards_invalidate,
-    window_park_awards_paint,
-    nullptr
-};
+static rct_window_event_list window_park_awards_events([](auto& events)
+{
+    events.mouse_up = &window_park_awards_mouseup;
+    events.resize = &window_park_awards_resize;
+    events.update = &window_park_awards_update;
+    events.invalidate = &window_park_awards_invalidate;
+    events.paint = &window_park_awards_paint;
+});
 
 static rct_window_event_list *window_park_page_events[] = {
     &window_park_entrance_events,
@@ -555,7 +410,7 @@ static rct_window* window_park_open()
 {
     rct_window* w;
 
-    w = window_create_auto_pos(230, 174 + 9, &window_park_entrance_events, WC_PARK_INFORMATION, WF_10);
+    w = WindowCreateAutoPos(230, 174 + 9, &window_park_entrance_events, WC_PARK_INFORMATION, WF_10);
     w->widgets = window_park_entrance_widgets;
     w->enabled_widgets = window_park_page_enabled_widgets[WINDOW_PARK_PAGE_ENTRANCE];
     w->number = 0;
@@ -582,8 +437,12 @@ static void window_park_set_disabled_tabs(rct_window* w)
 
 static void window_park_prepare_window_title_text()
 {
-    set_format_arg(0, rct_string_id, gParkName);
-    set_format_arg(2, uint32_t, gParkNameArgs);
+    auto& park = OpenRCT2::GetContext()->GetGameState()->GetPark();
+    auto parkName = park.Name.c_str();
+
+    auto ft = Formatter::Common();
+    ft.Add<rct_string_id>(STR_STRING);
+    ft.Add<const char*>(parkName);
 }
 
 #pragma region Entrance page
@@ -605,12 +464,12 @@ rct_window* window_park_entrance_open()
     }
 
     window->page = WINDOW_PARK_PAGE_ENTRANCE;
-    window_invalidate(window);
+    window->Invalidate();
     window->widgets = window_park_entrance_widgets;
     window->enabled_widgets = window_park_page_enabled_widgets[WINDOW_PARK_PAGE_ENTRANCE];
     window->event_handlers = &window_park_entrance_events;
     window->pressed_widgets = 0;
-    window_init_scroll_widgets(window);
+    WindowInitScrollWidgets(window);
     window_park_init_viewport(window);
 
     return window;
@@ -651,12 +510,15 @@ static void window_park_entrance_mouseup(rct_window* w, rct_widgetindex widgetIn
             context_open_window(WC_LAND_RIGHTS);
             break;
         case WIDX_LOCATE:
-            window_scroll_to_viewport(w);
+            w->ScrollToViewport();
             break;
         case WIDX_RENAME:
-            set_format_arg(16, uint32_t, gParkNameArgs);
-            window_text_input_open(w, WIDX_RENAME, STR_PARK_NAME, STR_ENTER_PARK_NAME, gParkName, 0, USER_STRING_MAX_LENGTH);
+        {
+            auto& park = OpenRCT2::GetContext()->GetGameState()->GetPark();
+            window_text_input_raw_open(
+                w, WIDX_RENAME, STR_PARK_NAME, STR_ENTER_PARK_NAME, park.Name.c_str(), USER_STRING_MAX_LENGTH);
             break;
+        }
         case WIDX_CLOSE_LIGHT:
             park_set_open(false);
             break;
@@ -689,18 +551,18 @@ static void window_park_entrance_mousedown(rct_window* w, rct_widgetindex widget
         gDropdownItemsFormat[1] = STR_DROPDOWN_MENU_LABEL;
         gDropdownItemsArgs[0] = STR_CLOSE_PARK;
         gDropdownItemsArgs[1] = STR_OPEN_PARK;
-        window_dropdown_show_text(
-            w->x + widget->left, w->y + widget->top, widget->bottom - widget->top + 1, w->colours[1], 0, 2);
+        WindowDropdownShowText(
+            { w->windowPos.x + widget->left, w->windowPos.y + widget->top }, widget->height() + 1, w->colours[1], 0, 2);
 
         if (park_is_open())
         {
             gDropdownDefaultIndex = 0;
-            dropdown_set_checked(1, true);
+            Dropdown::SetChecked(1, true);
         }
         else
         {
             gDropdownDefaultIndex = 1;
-            dropdown_set_checked(0, true);
+            Dropdown::SetChecked(0, true);
         }
     }
 }
@@ -759,30 +621,36 @@ static void window_park_entrance_invalidate(rct_window* w)
     int32_t i, height;
 
     w->widgets = window_park_page_widgets[w->page];
-    window_init_scroll_widgets(w);
+    WindowInitScrollWidgets(w);
 
     window_park_set_pressed_tab(w);
 
     // Set open / close park button state
-    set_format_arg(0, rct_string_id, gParkName);
-    set_format_arg(2, uint32_t, gParkNameArgs);
+    {
+        auto& park = OpenRCT2::GetContext()->GetGameState()->GetPark();
+        auto parkName = park.Name.c_str();
+
+        auto ft = Formatter::Common();
+        ft.Add<rct_string_id>(STR_STRING);
+        ft.Add<const char*>(parkName);
+    }
     window_park_entrance_widgets[WIDX_OPEN_OR_CLOSE].image = park_is_open() ? SPR_OPEN : SPR_CLOSED;
     window_park_entrance_widgets[WIDX_CLOSE_LIGHT].image = SPR_G2_RCT1_CLOSE_BUTTON_0 + !park_is_open() * 2
-        + widget_is_pressed(w, WIDX_CLOSE_LIGHT);
+        + WidgetIsPressed(w, WIDX_CLOSE_LIGHT);
     window_park_entrance_widgets[WIDX_OPEN_LIGHT].image = SPR_G2_RCT1_OPEN_BUTTON_0 + park_is_open() * 2
-        + widget_is_pressed(w, WIDX_OPEN_LIGHT);
+        + WidgetIsPressed(w, WIDX_OPEN_LIGHT);
 
     // Only allow closing of park for guest / rating objective
-    if (gScenarioObjectiveType == OBJECTIVE_GUESTS_AND_RATING)
+    if (gScenarioObjective.Type == OBJECTIVE_GUESTS_AND_RATING)
         w->disabled_widgets |= (1 << WIDX_OPEN_OR_CLOSE) | (1 << WIDX_CLOSE_LIGHT) | (1 << WIDX_OPEN_LIGHT);
     else
         w->disabled_widgets &= ~((1 << WIDX_OPEN_OR_CLOSE) | (1 << WIDX_CLOSE_LIGHT) | (1 << WIDX_OPEN_LIGHT));
 
     // Only allow purchase of land when there is money
     if (gParkFlags & PARK_FLAGS_NO_MONEY)
-        window_park_entrance_widgets[WIDX_BUY_LAND_RIGHTS].type = WWT_EMPTY;
+        window_park_entrance_widgets[WIDX_BUY_LAND_RIGHTS].type = WindowWidgetType::Empty;
     else
-        window_park_entrance_widgets[WIDX_BUY_LAND_RIGHTS].type = WWT_FLATBTN;
+        window_park_entrance_widgets[WIDX_BUY_LAND_RIGHTS].type = WindowWidgetType::FlatBtn;
 
     window_align_tabs(w, WIDX_TAB_1, WIDX_TAB_7);
     window_park_anchor_border_widgets(w);
@@ -794,26 +662,26 @@ static void window_park_entrance_invalidate(rct_window* w)
     window_park_entrance_widgets[WIDX_STATUS].top = w->height - 13;
     window_park_entrance_widgets[WIDX_STATUS].bottom = w->height - 3;
 
-    if (theme_get_flags() & UITHEME_FLAG_USE_LIGHTS_PARK)
+    if (ThemeGetFlags() & UITHEME_FLAG_USE_LIGHTS_PARK)
     {
-        window_park_entrance_widgets[WIDX_OPEN_OR_CLOSE].type = WWT_EMPTY;
-        if (gScenarioObjectiveType == OBJECTIVE_GUESTS_AND_RATING)
+        window_park_entrance_widgets[WIDX_OPEN_OR_CLOSE].type = WindowWidgetType::Empty;
+        if (gScenarioObjective.Type == OBJECTIVE_GUESTS_AND_RATING)
         {
-            window_park_entrance_widgets[WIDX_CLOSE_LIGHT].type = WWT_FLATBTN;
-            window_park_entrance_widgets[WIDX_OPEN_LIGHT].type = WWT_FLATBTN;
+            window_park_entrance_widgets[WIDX_CLOSE_LIGHT].type = WindowWidgetType::FlatBtn;
+            window_park_entrance_widgets[WIDX_OPEN_LIGHT].type = WindowWidgetType::FlatBtn;
         }
         else
         {
-            window_park_entrance_widgets[WIDX_CLOSE_LIGHT].type = WWT_IMGBTN;
-            window_park_entrance_widgets[WIDX_OPEN_LIGHT].type = WWT_IMGBTN;
+            window_park_entrance_widgets[WIDX_CLOSE_LIGHT].type = WindowWidgetType::ImgBtn;
+            window_park_entrance_widgets[WIDX_OPEN_LIGHT].type = WindowWidgetType::ImgBtn;
         }
         height = window_park_entrance_widgets[WIDX_OPEN_LIGHT].bottom + 5;
     }
     else
     {
-        window_park_entrance_widgets[WIDX_OPEN_OR_CLOSE].type = WWT_FLATBTN;
-        window_park_entrance_widgets[WIDX_CLOSE_LIGHT].type = WWT_EMPTY;
-        window_park_entrance_widgets[WIDX_OPEN_LIGHT].type = WWT_EMPTY;
+        window_park_entrance_widgets[WIDX_OPEN_OR_CLOSE].type = WindowWidgetType::FlatBtn;
+        window_park_entrance_widgets[WIDX_CLOSE_LIGHT].type = WindowWidgetType::Empty;
+        window_park_entrance_widgets[WIDX_OPEN_LIGHT].type = WindowWidgetType::Empty;
         height = 49;
     }
 
@@ -824,7 +692,7 @@ static void window_park_entrance_invalidate(rct_window* w)
     }
     for (i = WIDX_OPEN_OR_CLOSE; i <= WIDX_RENAME; i++)
     {
-        if (window_park_entrance_widgets[i].type == WWT_EMPTY)
+        if (window_park_entrance_widgets[i].type == WindowWidgetType::Empty)
             continue;
 
         window_park_entrance_widgets[i].left = w->width - 25;
@@ -843,7 +711,7 @@ static void window_park_entrance_paint(rct_window* w, rct_drawpixelinfo* dpi)
 {
     rct_widget* labelWidget;
 
-    window_draw_widgets(w, dpi);
+    WindowDrawWidgets(w, dpi);
     window_park_draw_tab_images(dpi, w);
 
     // Draw viewport
@@ -851,16 +719,17 @@ static void window_park_entrance_paint(rct_window* w, rct_drawpixelinfo* dpi)
     {
         window_draw_viewport(dpi, w);
         if (w->viewport->flags & VIEWPORT_FLAG_SOUND_ON)
-            gfx_draw_sprite(dpi, SPR_HEARING_VIEWPORT, w->x + 2, w->y + 2, 0);
+            gfx_draw_sprite(dpi, ImageId(SPR_HEARING_VIEWPORT), w->windowPos + ScreenCoordsXY{ 2, 2 });
     }
 
     // Draw park closed / open label
-    set_format_arg(0, rct_string_id, park_is_open() ? STR_PARK_OPEN : STR_PARK_CLOSED);
+    auto ft = Formatter();
+    ft.Add<rct_string_id>(park_is_open() ? STR_PARK_OPEN : STR_PARK_CLOSED);
 
     labelWidget = &window_park_entrance_widgets[WIDX_STATUS];
-    gfx_draw_string_centred_clipped(
-        dpi, STR_BLACK_STRING, gCommonFormatArgs, COLOUR_BLACK, w->x + (labelWidget->left + labelWidget->right) / 2,
-        w->y + labelWidget->top, labelWidget->right - labelWidget->left);
+    DrawTextEllipsised(
+        dpi, w->windowPos + ScreenCoordsXY{ labelWidget->midX(), labelWidget->top }, labelWidget->width(), STR_BLACK_STRING, ft,
+        { TextAlignment::CENTRE });
 }
 
 /**
@@ -871,7 +740,6 @@ static void window_park_init_viewport(rct_window* w)
 {
     int32_t x, y, z, r, xy, zr, viewportFlags;
     x = y = z = r = xy = zr = 0;
-    rct_viewport* viewport;
 
     if (w->page != WINDOW_PARK_PAGE_ENTRANCE)
         return;
@@ -894,13 +762,8 @@ static void window_park_init_viewport(rct_window* w)
     }
     else
     {
-        // if (w->var_482 == x && w->var_484 == y && w->var_486 == z && (uint16_t)w->var_488 >> 8 == r)
-        //  return;
-
-        viewport = w->viewport;
-        w->viewport = nullptr;
-        viewportFlags = viewport->flags;
-        viewport->width = 0;
+        viewportFlags = w->viewport->flags;
+        w->RemoveViewport();
     }
 
     // Call invalidate event
@@ -919,17 +782,17 @@ static void window_park_init_viewport(rct_window* w)
         {
             rct_widget* viewportWidget = &window_park_entrance_widgets[WIDX_VIEWPORT];
             viewport_create(
-                w, w->x + viewportWidget->left + 1, w->y + viewportWidget->top + 1,
-                (viewportWidget->right - viewportWidget->left) - 1, (viewportWidget->bottom - viewportWidget->top) - 1, 0, x, y,
-                z, w->viewport_focus_sprite.type & VIEWPORT_FOCUS_TYPE_MASK, SPRITE_INDEX_NULL);
+                w, w->windowPos + ScreenCoordsXY{ viewportWidget->left + 1, viewportWidget->top + 1 },
+                viewportWidget->width() - 1, viewportWidget->height() - 1, 0, { x, y, z },
+                w->viewport_focus_sprite.type & VIEWPORT_FOCUS_TYPE_MASK, SPRITE_INDEX_NULL);
             w->flags |= (1 << 2);
-            window_invalidate(w);
+            w->Invalidate();
         }
     }
 
     if (w->viewport != nullptr)
         w->viewport->flags = viewportFlags;
-    window_invalidate(w);
+    w->Invalidate();
 }
 
 #pragma endregion
@@ -959,12 +822,12 @@ rct_window* window_park_rating_open()
 
     window->viewport = nullptr;
     window->page = WINDOW_PARK_PAGE_RATING;
-    window_invalidate(window);
+    window->Invalidate();
     window->widgets = window_park_rating_widgets;
     window->enabled_widgets = window_park_page_enabled_widgets[WINDOW_PARK_PAGE_RATING];
     window->hold_down_widgets = window_park_page_hold_down_widgets[WINDOW_PARK_PAGE_RATING];
     window->event_handlers = &window_park_rating_events;
-    window_init_scroll_widgets(window);
+    WindowInitScrollWidgets(window);
 
     return window;
 }
@@ -987,7 +850,7 @@ static void window_park_rating_mouseup(rct_window* w, rct_widgetindex widgetInde
  */
 static void window_park_rating_resize(rct_window* w)
 {
-    window_set_resize(w, 230, 182, 230, 182);
+    window_set_resize(w, 255, 182, 255, 182);
 }
 
 /**
@@ -1012,7 +875,7 @@ static void window_park_rating_invalidate(rct_window* w)
     if (w->widgets != widgets)
     {
         w->widgets = widgets;
-        window_init_scroll_widgets(w);
+        WindowInitScrollWidgets(w);
     }
 
     window_park_set_pressed_tab(w);
@@ -1028,29 +891,42 @@ static void window_park_rating_invalidate(rct_window* w)
  */
 static void window_park_rating_paint(rct_window* w, rct_drawpixelinfo* dpi)
 {
-    int32_t x, y;
-    rct_widget* widget;
-
-    window_draw_widgets(w, dpi);
+    WindowDrawWidgets(w, dpi);
     window_park_draw_tab_images(dpi, w);
 
-    x = w->x;
-    y = w->y;
-    widget = &window_park_rating_widgets[WIDX_PAGE_BACKGROUND];
+    auto screenPos = w->windowPos;
+    rct_widget* widget = &window_park_rating_widgets[WIDX_PAGE_BACKGROUND];
 
     // Current value
-    gfx_draw_string_left(dpi, STR_PARK_RATING_LABEL, &gParkRating, COLOUR_BLACK, x + widget->left + 3, y + widget->top + 2);
+    DrawTextBasic(dpi, screenPos + ScreenCoordsXY{ widget->left + 3, widget->top + 2 }, STR_PARK_RATING_LABEL, &gParkRating);
 
     // Graph border
     gfx_fill_rect_inset(
-        dpi, x + widget->left + 4, y + widget->top + 15, x + widget->right - 4, y + widget->bottom - 4, w->colours[1],
-        INSET_RECT_F_30);
+        dpi,
+        { screenPos + ScreenCoordsXY{ widget->left + 4, widget->top + 15 },
+          screenPos + ScreenCoordsXY{ widget->right - 4, widget->bottom - 4 } },
+        w->colours[1], INSET_RECT_F_30);
+
+    // Y axis labels
+    screenPos = screenPos + ScreenCoordsXY{ widget->left + 27, widget->top + 23 };
+    for (int i = 5; i >= 0; i--)
+    {
+        uint32_t axisValue = i * 200;
+        auto ft = Formatter();
+        ft.Add<uint32_t>(axisValue);
+        DrawTextBasic(
+            dpi, screenPos + ScreenCoordsXY{ 10, 0 }, STR_GRAPH_AXIS_LABEL, ft,
+            { FontSpriteBase::SMALL, TextAlignment::RIGHT });
+        gfx_fill_rect_inset(
+            dpi, { screenPos + ScreenCoordsXY{ 15, 5 }, screenPos + ScreenCoordsXY{ w->width - 32, 5 } }, w->colours[2],
+            INSET_RECT_FLAG_BORDER_INSET);
+        screenPos.y += 20;
+    }
 
     // Graph
-    x += widget->left + 22;
-    y += widget->top + 26;
+    screenPos = w->windowPos + ScreenCoordsXY{ widget->left + 47, widget->top + 26 };
 
-    graph_draw_uint8_t(dpi, gParkRatingHistory, 32, x, y);
+    Graph::Draw(dpi, gParkRatingHistory, 32, screenPos);
 }
 
 #pragma endregion
@@ -1080,12 +956,12 @@ rct_window* window_park_guests_open()
 
     window->viewport = nullptr;
     window->page = WINDOW_PARK_PAGE_GUESTS;
-    window_invalidate(window);
+    window->Invalidate();
     window->widgets = window_park_guests_widgets;
     window->enabled_widgets = window_park_page_enabled_widgets[WINDOW_PARK_PAGE_GUESTS];
     window->hold_down_widgets = window_park_page_hold_down_widgets[WINDOW_PARK_PAGE_GUESTS];
     window->event_handlers = &window_park_guests_events;
-    window_init_scroll_widgets(window);
+    WindowInitScrollWidgets(window);
 
     return window;
 }
@@ -1108,7 +984,7 @@ static void window_park_guests_mouseup(rct_window* w, rct_widgetindex widgetInde
  */
 static void window_park_guests_resize(rct_window* w)
 {
-    window_set_resize(w, 230, 182, 230, 182);
+    window_set_resize(w, 255, 182, 255, 182);
 }
 
 /**
@@ -1134,7 +1010,7 @@ static void window_park_guests_invalidate(rct_window* w)
     if (w->widgets != widgets)
     {
         w->widgets = widgets;
-        window_init_scroll_widgets(w);
+        WindowInitScrollWidgets(w);
     }
 
     window_park_set_pressed_tab(w);
@@ -1150,30 +1026,43 @@ static void window_park_guests_invalidate(rct_window* w)
  */
 static void window_park_guests_paint(rct_window* w, rct_drawpixelinfo* dpi)
 {
-    int32_t x, y;
-    rct_widget* widget;
-
-    window_draw_widgets(w, dpi);
+    WindowDrawWidgets(w, dpi);
     window_park_draw_tab_images(dpi, w);
 
-    x = w->x;
-    y = w->y;
-    widget = &window_park_guests_widgets[WIDX_PAGE_BACKGROUND];
+    auto screenPos = ScreenCoordsXY{ w->windowPos.x, w->windowPos.y };
+    rct_widget* widget = &window_park_guests_widgets[WIDX_PAGE_BACKGROUND];
 
     // Current value
-    gfx_draw_string_left(
-        dpi, STR_GUESTS_IN_PARK_LABEL, &gNumGuestsInPark, COLOUR_BLACK, x + widget->left + 3, y + widget->top + 2);
+    DrawTextBasic(
+        dpi, screenPos + ScreenCoordsXY{ widget->left + 3, widget->top + 2 }, STR_GUESTS_IN_PARK_LABEL, &gNumGuestsInPark);
 
     // Graph border
     gfx_fill_rect_inset(
-        dpi, x + widget->left + 4, y + widget->top + 15, x + widget->right - 4, y + widget->bottom - 4, w->colours[1],
-        INSET_RECT_F_30);
+        dpi,
+        { screenPos + ScreenCoordsXY{ widget->left + 4, widget->top + 15 },
+          screenPos + ScreenCoordsXY{ widget->right - 4, widget->bottom - 4 } },
+        w->colours[1], INSET_RECT_F_30);
+
+    // Y axis labels
+    screenPos = screenPos + ScreenCoordsXY{ widget->left + 27, widget->top + 23 };
+    for (int i = 5; i >= 0; i--)
+    {
+        uint32_t axisValue = i * 1000;
+        auto ft = Formatter();
+        ft.Add<uint32_t>(axisValue);
+        DrawTextBasic(
+            dpi, screenPos + ScreenCoordsXY{ 10, 0 }, STR_GRAPH_AXIS_LABEL, ft,
+            { FontSpriteBase::SMALL, TextAlignment::RIGHT });
+        gfx_fill_rect_inset(
+            dpi, { screenPos + ScreenCoordsXY{ 15, 5 }, screenPos + ScreenCoordsXY{ w->width - 32, 5 } }, w->colours[2],
+            INSET_RECT_FLAG_BORDER_INSET);
+        screenPos.y += 20;
+    }
 
     // Graph
-    x += widget->left + 22;
-    y += widget->top + 26;
+    screenPos = w->windowPos + ScreenCoordsXY{ widget->left + 47, widget->top + 26 };
 
-    graph_draw_uint8_t(dpi, gGuestsInParkHistory, 32, x, y);
+    Graph::Draw(dpi, gGuestsInParkHistory, 32, screenPos);
 }
 
 #pragma endregion
@@ -1247,7 +1136,7 @@ static void window_park_price_invalidate(rct_window* w)
     if (w->widgets != widgets)
     {
         w->widgets = widgets;
-        window_init_scroll_widgets(w);
+        WindowInitScrollWidgets(w);
     }
 
     window_park_set_pressed_tab(w);
@@ -1266,20 +1155,16 @@ static void window_park_price_invalidate(rct_window* w)
     // If the entry price is locked at free, disable the widget, unless the unlock_all_prices cheat is active.
     if ((gParkFlags & PARK_FLAGS_NO_MONEY) || !park_entry_price_unlocked())
     {
-        window_park_price_widgets[WIDX_PRICE].type = WWT_LABEL_CENTRED;
-        window_park_price_widgets[WIDX_INCREASE_PRICE].type = WWT_EMPTY;
-        window_park_price_widgets[WIDX_DECREASE_PRICE].type = WWT_EMPTY;
+        window_park_price_widgets[WIDX_PRICE].type = WindowWidgetType::LabelCentred;
+        window_park_price_widgets[WIDX_INCREASE_PRICE].type = WindowWidgetType::Empty;
+        window_park_price_widgets[WIDX_DECREASE_PRICE].type = WindowWidgetType::Empty;
     }
     else
     {
-        window_park_price_widgets[WIDX_PRICE].type = WWT_SPINNER;
-        window_park_price_widgets[WIDX_INCREASE_PRICE].type = WWT_BUTTON;
-        window_park_price_widgets[WIDX_DECREASE_PRICE].type = WWT_BUTTON;
+        window_park_price_widgets[WIDX_PRICE].type = WindowWidgetType::Spinner;
+        window_park_price_widgets[WIDX_INCREASE_PRICE].type = WindowWidgetType::Button;
+        window_park_price_widgets[WIDX_DECREASE_PRICE].type = WindowWidgetType::Button;
     }
-
-    money16 parkEntranceFee = park_get_entrance_fee();
-    set_format_arg(6, uint32_t, parkEntranceFee);
-    window_park_price_widgets[WIDX_PRICE].text = parkEntranceFee == 0 ? STR_FREE : STR_ARG_6_CURRENCY2DP;
 
     window_align_tabs(w, WIDX_TAB_1, WIDX_TAB_7);
     window_park_anchor_border_widgets(w);
@@ -1291,15 +1176,17 @@ static void window_park_price_invalidate(rct_window* w)
  */
 static void window_park_price_paint(rct_window* w, rct_drawpixelinfo* dpi)
 {
-    int32_t x, y;
-
-    window_draw_widgets(w, dpi);
+    WindowDrawWidgets(w, dpi);
     window_park_draw_tab_images(dpi, w);
 
-    x = w->x + window_park_price_widgets[WIDX_PAGE_BACKGROUND].left + 4;
-    y = w->y + window_park_price_widgets[WIDX_PAGE_BACKGROUND].top + 30;
+    auto screenCoords = w->windowPos
+        + ScreenCoordsXY{ w->widgets[WIDX_PAGE_BACKGROUND].left + 4, w->widgets[WIDX_PAGE_BACKGROUND].top + 30 };
+    DrawTextBasic(dpi, screenCoords, STR_INCOME_FROM_ADMISSIONS, &gTotalIncomeFromAdmissions);
 
-    gfx_draw_string_left(dpi, STR_INCOME_FROM_ADMISSIONS, &gTotalIncomeFromAdmissions, COLOUR_BLACK, x, y);
+    money32 parkEntranceFee = park_get_entrance_fee();
+    auto stringId = parkEntranceFee == 0 ? STR_FREE : STR_BOTTOM_TOOLBAR_CASH;
+    screenCoords = w->windowPos + ScreenCoordsXY{ w->widgets[WIDX_PRICE].left + 1, w->widgets[WIDX_PRICE].top + 1 };
+    DrawTextBasic(dpi, screenCoords, stringId, &parkEntranceFee, { w->colours[1] });
 }
 
 #pragma endregion
@@ -1367,7 +1254,7 @@ static void window_park_stats_invalidate(rct_window* w)
     if (w->widgets != widgets)
     {
         w->widgets = widgets;
-        window_init_scroll_widgets(w);
+        WindowInitScrollWidgets(w);
     }
 
     window_park_set_pressed_tab(w);
@@ -1383,46 +1270,54 @@ static void window_park_stats_invalidate(rct_window* w)
  */
 static void window_park_stats_paint(rct_window* w, rct_drawpixelinfo* dpi)
 {
-    int32_t x, y, parkSize, stringIndex;
+    int32_t parkSize, stringIndex;
 
-    window_draw_widgets(w, dpi);
+    WindowDrawWidgets(w, dpi);
     window_park_draw_tab_images(dpi, w);
 
-    x = w->x + window_park_awards_widgets[WIDX_PAGE_BACKGROUND].left + 4;
-    y = w->y + window_park_awards_widgets[WIDX_PAGE_BACKGROUND].top + 4;
+    auto screenCoords = w->windowPos
+        + ScreenCoordsXY{ window_park_awards_widgets[WIDX_PAGE_BACKGROUND].left + 4,
+                          window_park_awards_widgets[WIDX_PAGE_BACKGROUND].top + 4 };
 
     // Draw park size
     parkSize = gParkSize * 10;
     stringIndex = STR_PARK_SIZE_METRIC_LABEL;
-    if (gConfigGeneral.measurement_format == MEASUREMENT_FORMAT_IMPERIAL)
+    if (gConfigGeneral.measurement_format == MeasurementFormat::Imperial)
     {
         stringIndex = STR_PARK_SIZE_IMPERIAL_LABEL;
         parkSize = squaredmetres_to_squaredfeet(parkSize);
     }
-    set_format_arg(0, uint32_t, parkSize);
-    gfx_draw_string_left(dpi, stringIndex, gCommonFormatArgs, COLOUR_BLACK, x, y);
-    y += LIST_ROW_HEIGHT;
+    auto ft = Formatter();
+    ft.Add<uint32_t>(parkSize);
+    DrawTextBasic(dpi, screenCoords, stringIndex, ft);
+    screenCoords.y += LIST_ROW_HEIGHT;
 
     // Draw number of rides / attractions
-    if (w->list_information_type != (uint16_t)-1)
+    if (w->list_information_type != 0xFFFF)
     {
-        set_format_arg(0, uint32_t, w->list_information_type);
-        gfx_draw_string_left(dpi, STR_NUMBER_OF_RIDES_LABEL, gCommonFormatArgs, COLOUR_BLACK, x, y);
+        ft = Formatter();
+        ft.Add<uint32_t>(w->list_information_type);
+        DrawTextBasic(dpi, screenCoords, STR_NUMBER_OF_RIDES_LABEL, ft);
     }
-    y += LIST_ROW_HEIGHT;
+    screenCoords.y += LIST_ROW_HEIGHT;
 
     // Draw number of staff
     if (w->numberOfStaff != -1)
     {
-        set_format_arg(0, uint32_t, w->numberOfStaff);
-        gfx_draw_string_left(dpi, STR_STAFF_LABEL, gCommonFormatArgs, COLOUR_BLACK, x, y);
+        ft = Formatter();
+        ft.Add<uint32_t>(w->numberOfStaff);
+        DrawTextBasic(dpi, screenCoords, STR_STAFF_LABEL, ft);
     }
-    y += LIST_ROW_HEIGHT;
+    screenCoords.y += LIST_ROW_HEIGHT;
 
     // Draw number of guests in park
-    gfx_draw_string_left(dpi, STR_GUESTS_IN_PARK_LABEL, &gNumGuestsInPark, COLOUR_BLACK, x, y);
-    y += LIST_ROW_HEIGHT;
-    gfx_draw_string_left(dpi, STR_TOTAL_ADMISSIONS, &gTotalAdmissions, COLOUR_BLACK, x, y);
+    ft = Formatter();
+    ft.Add<uint32_t>(gNumGuestsInPark);
+    DrawTextBasic(dpi, screenCoords, STR_GUESTS_IN_PARK_LABEL, ft);
+    screenCoords.y += LIST_ROW_HEIGHT;
+    ft = Formatter();
+    ft.Add<uint32_t>(gTotalAdmissions);
+    DrawTextBasic(dpi, screenCoords, STR_TOTAL_ADMISSIONS, ft);
 }
 
 #pragma endregion
@@ -1452,15 +1347,15 @@ rct_window* window_park_objective_open()
 
     window->viewport = nullptr;
     window->page = WINDOW_PARK_PAGE_OBJECTIVE;
-    window_invalidate(window);
+    window->Invalidate();
     window->widgets = window_park_objective_widgets;
     window->enabled_widgets = window_park_page_enabled_widgets[WINDOW_PARK_PAGE_OBJECTIVE];
     window->hold_down_widgets = window_park_page_hold_down_widgets[WINDOW_PARK_PAGE_OBJECTIVE];
     window->event_handlers = &window_park_objective_events;
-    window_init_scroll_widgets(window);
-    window->x = context_get_width() / 2 - 115;
-    window->y = context_get_height() / 2 - 87;
-    window_invalidate(window);
+    WindowInitScrollWidgets(window);
+    window->windowPos.x = context_get_width() / 2 - 115;
+    window->windowPos.y = context_get_height() / 2 - 87;
+    window->Invalidate();
 
     return window;
 }
@@ -1498,7 +1393,12 @@ static void window_park_objective_mouseup(rct_window* w, rct_widgetindex widgetI
  */
 static void window_park_objective_resize(rct_window* w)
 {
-    window_set_resize(w, 230, 226, 230, 226);
+#ifndef NO_TTF
+    if (gCurrentTTFFontSet != nullptr)
+        window_set_resize(w, 230, 270, 230, 270);
+    else
+#endif
+        window_set_resize(w, 230, 226, 230, 226);
 }
 
 /**
@@ -1520,7 +1420,7 @@ static void window_park_objective_textinput(rct_window* w, rct_widgetindex widge
     if (widgetIndex == WIDX_ENTER_NAME && text != nullptr && text[0] != 0)
     {
         scenario_success_submit_name(text);
-        window_invalidate(w);
+        w->Invalidate();
     }
 }
 
@@ -1533,11 +1433,15 @@ static void window_park_objective_invalidate(rct_window* w)
     window_park_set_pressed_tab(w);
     window_park_prepare_window_title_text();
 
-    //
+    // Show name input button on scenario completion.
     if (gParkFlags & PARK_FLAGS_SCENARIO_COMPLETE_NAME_INPUT)
-        window_park_objective_widgets[WIDX_ENTER_NAME].type = WWT_BUTTON;
+    {
+        window_park_objective_widgets[WIDX_ENTER_NAME].type = WindowWidgetType::Button;
+        window_park_objective_widgets[WIDX_ENTER_NAME].top = w->height - 19;
+        window_park_objective_widgets[WIDX_ENTER_NAME].bottom = w->height - 6;
+    }
     else
-        window_park_objective_widgets[WIDX_ENTER_NAME].type = WWT_EMPTY;
+        window_park_objective_widgets[WIDX_ENTER_NAME].type = WindowWidgetType::Empty;
 
     window_align_tabs(w, WIDX_TAB_1, WIDX_TAB_7);
     window_park_anchor_border_widgets(w);
@@ -1549,44 +1453,62 @@ static void window_park_objective_invalidate(rct_window* w)
  */
 static void window_park_objective_paint(rct_window* w, rct_drawpixelinfo* dpi)
 {
-    int32_t x, y;
-
-    window_draw_widgets(w, dpi);
+    WindowDrawWidgets(w, dpi);
     window_park_draw_tab_images(dpi, w);
 
     // Scenario description
-    x = w->x + window_park_objective_widgets[WIDX_PAGE_BACKGROUND].left + 4;
-    y = w->y + window_park_objective_widgets[WIDX_PAGE_BACKGROUND].top + 7;
-    set_format_arg(0, rct_string_id, STR_STRING);
-    set_format_arg(2, const char*, gScenarioDetails.c_str());
-    y += gfx_draw_string_left_wrapped(dpi, gCommonFormatArgs, x, y, 222, STR_BLACK_STRING, COLOUR_BLACK);
-    y += 5;
+    auto screenCoords = w->windowPos
+        + ScreenCoordsXY{ window_park_objective_widgets[WIDX_PAGE_BACKGROUND].left + 4,
+                          window_park_objective_widgets[WIDX_PAGE_BACKGROUND].top + 7 };
+    auto ft = Formatter();
+    ft.Add<rct_string_id>(STR_STRING);
+    ft.Add<const char*>(gScenarioDetails.c_str());
+    screenCoords.y += DrawTextWrapped(dpi, screenCoords, 222, STR_BLACK_STRING, ft);
+    screenCoords.y += 5;
 
     // Your objective:
-    gfx_draw_string_left(dpi, STR_OBJECTIVE_LABEL, nullptr, COLOUR_BLACK, x, y);
-    y += LIST_ROW_HEIGHT;
+    DrawTextBasic(dpi, screenCoords, STR_OBJECTIVE_LABEL);
+    screenCoords.y += LIST_ROW_HEIGHT;
 
     // Objective
-    set_format_arg(0, uint16_t, gScenarioObjectiveNumGuests);
-    set_format_arg(2, int16_t, date_get_total_months(MONTH_OCTOBER, gScenarioObjectiveYear));
-    set_format_arg(4, money32, gScenarioObjectiveCurrency);
+    ft = Formatter();
+    if (gScenarioObjective.Type == OBJECTIVE_BUILD_THE_BEST)
+    {
+        rct_string_id rideTypeString = STR_NONE;
+        auto rideTypeId = gScenarioObjective.RideId;
+        if (rideTypeId != RIDE_TYPE_NULL && rideTypeId < RIDE_TYPE_COUNT)
+        {
+            rideTypeString = GetRideTypeDescriptor(rideTypeId).Naming.Name;
+        }
+        ft.Add<rct_string_id>(rideTypeString);
+    }
+    else
+    {
+        ft.Add<uint16_t>(gScenarioObjective.NumGuests);
+        ft.Add<int16_t>(date_get_total_months(MONTH_OCTOBER, gScenarioObjective.Year));
+        if (gScenarioObjective.Type == OBJECTIVE_FINISH_5_ROLLERCOASTERS)
+            ft.Add<uint16_t>(gScenarioObjective.MinimumExcitement);
+        else
+            ft.Add<money32>(gScenarioObjective.Currency);
+    }
 
-    y += gfx_draw_string_left_wrapped(dpi, gCommonFormatArgs, x, y, 221, ObjectiveNames[gScenarioObjectiveType], COLOUR_BLACK);
-    y += 5;
+    screenCoords.y += DrawTextWrapped(dpi, screenCoords, 221, ObjectiveNames[gScenarioObjective.Type], ft);
+    screenCoords.y += 5;
 
     // Objective outcome
     if (gScenarioCompletedCompanyValue != MONEY32_UNDEFINED)
     {
-        if ((uint32_t)gScenarioCompletedCompanyValue == 0x80000001)
+        if (gScenarioCompletedCompanyValue == COMPANY_VALUE_ON_FAILED_OBJECTIVE)
         {
             // Objective failed
-            gfx_draw_string_left_wrapped(dpi, nullptr, x, y, 222, STR_OBJECTIVE_FAILED, COLOUR_BLACK);
+            DrawTextWrapped(dpi, screenCoords, 222, STR_OBJECTIVE_FAILED);
         }
         else
         {
             // Objective completed
-            set_format_arg(0, money32, gScenarioCompletedCompanyValue);
-            gfx_draw_string_left_wrapped(dpi, gCommonFormatArgs, x, y, 222, STR_OBJECTIVE_ACHIEVED, COLOUR_BLACK);
+            ft = Formatter();
+            ft.Add<money32>(gScenarioCompletedCompanyValue);
+            DrawTextWrapped(dpi, screenCoords, 222, STR_OBJECTIVE_ACHIEVED, ft);
         }
     }
 }
@@ -1618,12 +1540,12 @@ rct_window* window_park_awards_open()
 
     window->viewport = nullptr;
     window->page = WINDOW_PARK_PAGE_AWARDS;
-    window_invalidate(window);
+    window->Invalidate();
     window->widgets = window_park_awards_widgets;
     window->enabled_widgets = window_park_page_enabled_widgets[WINDOW_PARK_PAGE_AWARDS];
     window->hold_down_widgets = window_park_page_hold_down_widgets[WINDOW_PARK_PAGE_AWARDS];
     window->event_handlers = &window_park_awards_events;
-    window_init_scroll_widgets(window);
+    WindowInitScrollWidgets(window);
 
     return window;
 }
@@ -1671,7 +1593,7 @@ static void window_park_awards_invalidate(rct_window* w)
     if (w->widgets != widgets)
     {
         w->widgets = widgets;
-        window_init_scroll_widgets(w);
+        WindowInitScrollWidgets(w);
     }
 
     window_park_set_pressed_tab(w);
@@ -1687,11 +1609,12 @@ static void window_park_awards_invalidate(rct_window* w)
  */
 static void window_park_awards_paint(rct_window* w, rct_drawpixelinfo* dpi)
 {
-    window_draw_widgets(w, dpi);
+    WindowDrawWidgets(w, dpi);
     window_park_draw_tab_images(dpi, w);
 
-    int32_t x = w->x + window_park_awards_widgets[WIDX_PAGE_BACKGROUND].left + 4;
-    int32_t y = w->y + window_park_awards_widgets[WIDX_PAGE_BACKGROUND].top + 4;
+    auto screenCoords = w->windowPos
+        + ScreenCoordsXY{ window_park_awards_widgets[WIDX_PAGE_BACKGROUND].left + 4,
+                          window_park_awards_widgets[WIDX_PAGE_BACKGROUND].top + 4 };
     int32_t count = 0;
     for (int32_t i = 0; i < MAX_AWARDS; i++)
     {
@@ -1699,15 +1622,15 @@ static void window_park_awards_paint(rct_window* w, rct_drawpixelinfo* dpi)
         if (award->Time == 0)
             continue;
 
-        gfx_draw_sprite(dpi, ParkAwards[award->Type].sprite, x, y, 0);
-        gfx_draw_string_left_wrapped(dpi, nullptr, x + 34, y + 6, 180, ParkAwards[award->Type].text, COLOUR_BLACK);
+        gfx_draw_sprite(dpi, ImageId(ParkAwards[award->Type].sprite), screenCoords);
+        DrawTextWrapped(dpi, screenCoords + ScreenCoordsXY{ 34, 6 }, 180, ParkAwards[award->Type].text);
 
-        y += 32;
+        screenCoords.y += 32;
         count++;
     }
 
     if (count == 0)
-        gfx_draw_string_left(dpi, STR_NO_RECENT_AWARDS, nullptr, COLOUR_BLACK, x + 6, y + 6);
+        DrawTextBasic(dpi, screenCoords + ScreenCoordsXY{ 6, 6 }, STR_NO_RECENT_AWARDS);
 }
 
 #pragma endregion
@@ -1735,18 +1658,14 @@ static void window_park_set_page(rct_window* w, int32_t page)
     w->page = page;
     w->frame_no = 0;
     w->var_492 = 0;
-    if (w->viewport != nullptr)
-    {
-        w->viewport->width = 0;
-        w->viewport = nullptr;
-    }
+    w->RemoveViewport();
 
     w->enabled_widgets = window_park_page_enabled_widgets[page];
     w->hold_down_widgets = window_park_page_hold_down_widgets[page];
     w->event_handlers = window_park_page_events[page];
     w->widgets = window_park_page_widgets[page];
     window_park_set_disabled_tabs(w);
-    window_invalidate(w);
+    w->Invalidate();
 
     window_event_resize_call(w);
     window_event_invalidate_call(w);
@@ -1780,7 +1699,9 @@ static void window_park_draw_tab_images(rct_drawpixelinfo* dpi, rct_window* w)
 
     // Entrance tab
     if (!(w->disabled_widgets & (1 << WIDX_TAB_1)))
-        gfx_draw_sprite(dpi, SPR_TAB_PARK_ENTRANCE, w->x + w->widgets[WIDX_TAB_1].left, w->y + w->widgets[WIDX_TAB_1].top, 0);
+        gfx_draw_sprite(
+            dpi, ImageId(SPR_TAB_PARK_ENTRANCE),
+            w->windowPos + ScreenCoordsXY{ w->widgets[WIDX_TAB_1].left, w->widgets[WIDX_TAB_1].top });
 
     // Rating tab
     if (!(w->disabled_widgets & (1 << WIDX_TAB_2)))
@@ -1788,10 +1709,14 @@ static void window_park_draw_tab_images(rct_drawpixelinfo* dpi, rct_window* w)
         sprite_idx = SPR_TAB_GRAPH_0;
         if (w->page == WINDOW_PARK_PAGE_RATING)
             sprite_idx += (w->frame_no / 8) % 8;
-        gfx_draw_sprite(dpi, sprite_idx, w->x + w->widgets[WIDX_TAB_2].left, w->y + w->widgets[WIDX_TAB_2].top, 0);
-        gfx_draw_sprite(dpi, SPR_RATING_HIGH, w->x + w->widgets[WIDX_TAB_2].left + 7, w->y + w->widgets[WIDX_TAB_2].top + 1, 0);
         gfx_draw_sprite(
-            dpi, SPR_RATING_LOW, w->x + w->widgets[WIDX_TAB_2].left + 16, w->y + w->widgets[WIDX_TAB_2].top + 12, 0);
+            dpi, ImageId(sprite_idx), w->windowPos + ScreenCoordsXY{ w->widgets[WIDX_TAB_2].left, w->widgets[WIDX_TAB_2].top });
+        gfx_draw_sprite(
+            dpi, ImageId(SPR_RATING_HIGH),
+            w->windowPos + ScreenCoordsXY{ w->widgets[WIDX_TAB_2].left + 7, w->widgets[WIDX_TAB_2].top + 1 });
+        gfx_draw_sprite(
+            dpi, ImageId(SPR_RATING_LOW),
+            w->windowPos + ScreenCoordsXY{ w->widgets[WIDX_TAB_2].left + 16, w->widgets[WIDX_TAB_2].top + 12 });
     }
 
     // Guests tab
@@ -1800,16 +1725,17 @@ static void window_park_draw_tab_images(rct_drawpixelinfo* dpi, rct_window* w)
         sprite_idx = SPR_TAB_GRAPH_0;
         if (w->page == WINDOW_PARK_PAGE_GUESTS)
             sprite_idx += (w->frame_no / 8) % 8;
-        gfx_draw_sprite(dpi, sprite_idx, w->x + w->widgets[WIDX_TAB_3].left, w->y + w->widgets[WIDX_TAB_3].top, 0);
+        gfx_draw_sprite(
+            dpi, ImageId(sprite_idx), w->windowPos + ScreenCoordsXY{ w->widgets[WIDX_TAB_3].left, w->widgets[WIDX_TAB_3].top });
 
-        sprite_idx = g_peep_animation_entries[PEEP_SPRITE_TYPE_NORMAL].sprite_animation->base_image + 1;
+        sprite_idx = GetPeepAnimation(PeepSpriteType::Normal).base_image + 1;
         if (w->page == WINDOW_PARK_PAGE_GUESTS)
             sprite_idx += w->var_492 & 0xFFFFFFFC;
 
         sprite_idx |= 0xA9E00000;
         gfx_draw_sprite(
-            dpi, sprite_idx, w->x + (w->widgets[WIDX_TAB_3].left + w->widgets[WIDX_TAB_3].right) / 2,
-            w->y + w->widgets[WIDX_TAB_3].bottom - 9, 0);
+            dpi, ImageId::FromUInt32(sprite_idx),
+            w->windowPos + ScreenCoordsXY{ w->widgets[WIDX_TAB_3].midX(), w->widgets[WIDX_TAB_3].bottom - 9 });
     }
 
     // Price tab
@@ -1818,7 +1744,8 @@ static void window_park_draw_tab_images(rct_drawpixelinfo* dpi, rct_window* w)
         sprite_idx = SPR_TAB_ADMISSION_0;
         if (w->page == WINDOW_PARK_PAGE_PRICE)
             sprite_idx += (w->frame_no / 2) % 8;
-        gfx_draw_sprite(dpi, sprite_idx, w->x + w->widgets[WIDX_TAB_4].left, w->y + w->widgets[WIDX_TAB_4].top, 0);
+        gfx_draw_sprite(
+            dpi, ImageId(sprite_idx), w->windowPos + ScreenCoordsXY{ w->widgets[WIDX_TAB_4].left, w->widgets[WIDX_TAB_4].top });
     }
 
     // Statistics tab
@@ -1827,7 +1754,8 @@ static void window_park_draw_tab_images(rct_drawpixelinfo* dpi, rct_window* w)
         sprite_idx = SPR_TAB_STATS_0;
         if (w->page == WINDOW_PARK_PAGE_STATS)
             sprite_idx += (w->frame_no / 4) % 7;
-        gfx_draw_sprite(dpi, sprite_idx, w->x + w->widgets[WIDX_TAB_5].left, w->y + w->widgets[WIDX_TAB_5].top, 0);
+        gfx_draw_sprite(
+            dpi, ImageId(sprite_idx), w->windowPos + ScreenCoordsXY{ w->widgets[WIDX_TAB_5].left, w->widgets[WIDX_TAB_5].top });
     }
 
     // Objective tab
@@ -1836,12 +1764,15 @@ static void window_park_draw_tab_images(rct_drawpixelinfo* dpi, rct_window* w)
         sprite_idx = SPR_TAB_OBJECTIVE_0;
         if (w->page == WINDOW_PARK_PAGE_OBJECTIVE)
             sprite_idx += (w->frame_no / 4) % 16;
-        gfx_draw_sprite(dpi, sprite_idx, w->x + w->widgets[WIDX_TAB_6].left, w->y + w->widgets[WIDX_TAB_6].top, 0);
+        gfx_draw_sprite(
+            dpi, ImageId(sprite_idx), w->windowPos + ScreenCoordsXY{ w->widgets[WIDX_TAB_6].left, w->widgets[WIDX_TAB_6].top });
     }
 
     // Awards tab
     if (!(w->disabled_widgets & (1 << WIDX_TAB_7)))
-        gfx_draw_sprite(dpi, SPR_TAB_AWARDS, w->x + w->widgets[WIDX_TAB_7].left, w->y + w->widgets[WIDX_TAB_7].top, 0);
+        gfx_draw_sprite(
+            dpi, ImageId(SPR_TAB_AWARDS),
+            w->windowPos + ScreenCoordsXY{ w->widgets[WIDX_TAB_7].left, w->widgets[WIDX_TAB_7].top });
 }
 
 #pragma endregion

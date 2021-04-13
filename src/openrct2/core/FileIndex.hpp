@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (c) 2014-2019 OpenRCT2 developers
+ * Copyright (c) 2014-2020 OpenRCT2 developers
  *
  * For a complete list of all authors, please refer to contributors.md
  * Interested in contributing? Visit https://github.com/OpenRCT2/OpenRCT2
@@ -11,10 +11,11 @@
 
 #include "../common.h"
 #include "Console.hpp"
+#include "DataSerialiser.h"
 #include "File.h"
 #include "FileScanner.h"
-#include "FileStream.hpp"
-#include "JobPool.hpp"
+#include "FileStream.h"
+#include "JobPool.h"
 #include "Path.hpp"
 
 #include <chrono>
@@ -130,14 +131,9 @@ protected:
     virtual std::tuple<bool, TItem> Create(int32_t language, const std::string& path) const abstract;
 
     /**
-     * Serialises an index item to the given stream.
+     * Serialises/DeSerialises an index item to/from the given stream.
      */
-    virtual void Serialise(IStream* stream, const TItem& item) const abstract;
-
-    /**
-     * Deserialises an index item from the given stream.
-     */
-    virtual TItem Deserialise(IStream* stream) const abstract;
+    virtual void Serialise(DataSerialiser& ds, TItem& item) const abstract;
 
 private:
     ScanResult Scan() const
@@ -156,14 +152,14 @@ private:
                 auto fileInfo = scanner->GetFileInfo();
                 auto path = std::string(scanner->GetPath());
 
-                files.push_back(path);
-
                 stats.TotalFiles++;
                 stats.TotalFileSize += fileInfo->Size;
-                stats.FileDateModifiedChecksum ^= (uint32_t)(fileInfo->LastModified >> 32)
-                    ^ (uint32_t)(fileInfo->LastModified & 0xFFFFFFFF);
+                stats.FileDateModifiedChecksum ^= static_cast<uint32_t>(fileInfo->LastModified >> 32)
+                    ^ static_cast<uint32_t>(fileInfo->LastModified & 0xFFFFFFFF);
                 stats.FileDateModifiedChecksum = ror32(stats.FileDateModifiedChecksum, 5);
                 stats.PathChecksum += GetPathChecksum(path);
+
+                files.push_back(std::move(path));
             }
             delete scanner;
         }
@@ -179,7 +175,7 @@ private:
         {
             const auto& filePath = scanResult.Files.at(i);
 
-            if (_log_levels[DIAGNOSTIC_LEVEL_VERBOSE])
+            if (_log_levels[static_cast<uint8_t>(DiagnosticLevel::Verbose)])
             {
                 std::lock_guard<std::mutex> lock(printLock);
                 log_verbose("FileIndex:Indexing '%s'", filePath.c_str());
@@ -237,7 +233,7 @@ private:
 
             jobPool.Join(reportProgress);
 
-            for (auto&& itr : containers)
+            for (const auto& itr : containers)
             {
                 allItems.insert(allItems.end(), itr.begin(), itr.end());
             }
@@ -246,7 +242,7 @@ private:
         WriteIndexFile(language, scanResult.Stats, allItems);
 
         auto endTime = std::chrono::high_resolution_clock::now();
-        auto duration = (std::chrono::duration<float>)(endTime - startTime);
+        auto duration = std::chrono::duration<float>(endTime - startTime);
         Console::WriteLine("Finished building %s in %.2f seconds.", _name.c_str(), duration.count());
 
         return allItems;
@@ -261,7 +257,7 @@ private:
             try
             {
                 log_verbose("FileIndex:Loading index: '%s'", _indexPath.c_str());
-                auto fs = FileStream(_indexPath, FILE_MODE_OPEN);
+                auto fs = OpenRCT2::FileStream(_indexPath, OpenRCT2::FILE_MODE_OPEN);
 
                 // Read header, check if we need to re-scan
                 auto header = fs.ReadValue<FileIndexHeader>();
@@ -272,11 +268,13 @@ private:
                     && header.Stats.PathChecksum == stats.PathChecksum)
                 {
                     items.reserve(header.NumItems);
+                    DataSerialiser ds(false, fs);
                     // Directory is the same, just read the saved items
                     for (uint32_t i = 0; i < header.NumItems; i++)
                     {
-                        auto item = Deserialise(&fs);
-                        items.push_back(item);
+                        TItem item;
+                        Serialise(ds, item);
+                        items.emplace_back(std::move(item));
                     }
                     loadedItems = true;
                 }
@@ -291,16 +289,16 @@ private:
                 Console::Error::WriteLine("%s", e.what());
             }
         }
-        return std::make_tuple(loadedItems, items);
+        return std::make_tuple(loadedItems, std::move(items));
     }
 
-    void WriteIndexFile(int32_t language, const DirectoryStats& stats, const std::vector<TItem>& items) const
+    void WriteIndexFile(int32_t language, const DirectoryStats& stats, std::vector<TItem>& items) const
     {
         try
         {
             log_verbose("FileIndex:Writing index: '%s'", _indexPath.c_str());
             Path::CreateDirectory(Path::GetDirectory(_indexPath));
-            auto fs = FileStream(_indexPath, FILE_MODE_WRITE);
+            auto fs = OpenRCT2::FileStream(_indexPath, OpenRCT2::FILE_MODE_WRITE);
 
             // Write header
             FileIndexHeader header;
@@ -309,13 +307,14 @@ private:
             header.VersionB = _version;
             header.LanguageId = language;
             header.Stats = stats;
-            header.NumItems = (uint32_t)items.size();
+            header.NumItems = static_cast<uint32_t>(items.size());
             fs.WriteValue(header);
 
+            DataSerialiser ds(true, fs);
             // Write items
-            for (const auto& item : items)
+            for (auto& item : items)
             {
-                Serialise(&fs, item);
+                Serialise(ds, item);
             }
         }
         catch (const std::exception& e)

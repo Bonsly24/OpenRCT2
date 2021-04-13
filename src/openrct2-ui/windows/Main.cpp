@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (c) 2014-2019 OpenRCT2 developers
+ * Copyright (c) 2014-2020 OpenRCT2 developers
  *
  * For a complete list of all authors, please refer to contributors.md
  * Interested in contributing? Visit https://github.com/OpenRCT2/OpenRCT2
@@ -17,42 +17,16 @@
 
 // clang-format off
 static rct_widget window_main_widgets[] = {
-    { WWT_VIEWPORT, 0, 0x0000, -1, 0x0000, -1, STR_VIEWPORT, 0xFFFF },
+    MakeWidget({0, 0}, {0, 0}, WindowWidgetType::Viewport, WindowColour::Primary, STR_VIEWPORT),
     { WIDGETS_END },
 };
 
 void window_main_paint(rct_window *w, rct_drawpixelinfo *dpi);
 
-static rct_window_event_list window_main_events = {
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    window_main_paint,
-    nullptr
-};
+static rct_window_event_list window_main_events([](auto& events)
+{
+    events.paint = &window_main_paint;
+});
 // clang-format on
 
 /**
@@ -63,12 +37,12 @@ rct_window* window_main_open()
 {
     window_main_widgets[0].right = context_get_width();
     window_main_widgets[0].bottom = context_get_height();
-    rct_window* window = window_create(
-        0, 0, window_main_widgets[0].right, window_main_widgets[0].bottom, &window_main_events, WC_MAIN_WINDOW,
+    rct_window* window = WindowCreate(
+        ScreenCoordsXY(0, 0), window_main_widgets[0].right, window_main_widgets[0].bottom, &window_main_events, WC_MAIN_WINDOW,
         WF_STICK_TO_BACK);
     window->widgets = window_main_widgets;
 
-    viewport_create(window, window->x, window->y, window->width, window->height, 0, 0x0FFF, 0x0FFF, 0, 0x1, SPRITE_INDEX_NULL);
+    viewport_create(window, window->windowPos, window->width, window->height, 0, { 0x0FFF, 0x0FFF, 0 }, 0x1, SPRITE_INDEX_NULL);
     window->viewport->flags |= VIEWPORT_FLAG_SOUND_ON;
     gCurrentRotation = 0;
     gShowGridLinesRefCount = 0;

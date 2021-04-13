@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (c) 2014-2019 OpenRCT2 developers
+ * Copyright (c) 2014-2020 OpenRCT2 developers
  *
  * For a complete list of all authors, please refer to contributors.md
  * Interested in contributing? Visit https://github.com/OpenRCT2/OpenRCT2
@@ -36,24 +36,28 @@ static void paint_crooked_house_structure(
 {
     const TileElement* original_tile_element = static_cast<const TileElement*>(session->CurrentlyDrawnItem);
 
-    Ride* ride = get_ride(original_tile_element->AsTrack()->GetRideIndex());
+    auto ride = get_ride(original_tile_element->AsTrack()->GetRideIndex());
+    if (ride == nullptr)
+        return;
 
-    rct_ride_entry* rideEntry = get_ride_entry(ride->subtype);
+    auto rideEntry = ride->GetRideEntry();
+    if (rideEntry == nullptr)
+        return;
 
     if (ride->lifecycle_flags & RIDE_LIFECYCLE_ON_TRACK)
     {
-        if (ride->vehicles[0] != SPRITE_INDEX_NULL)
+        auto vehicle = GetEntity<Vehicle>(ride->vehicles[0]);
+        if (vehicle != nullptr)
         {
-            rct_sprite* sprite = get_sprite(ride->vehicles[0]);
-            session->InteractionType = VIEWPORT_INTERACTION_ITEM_SPRITE;
-            session->CurrentlyDrawnItem = sprite;
+            session->InteractionType = ViewportInteractionItem::Entity;
+            session->CurrentlyDrawnItem = vehicle;
         }
     }
 
     uint32_t image_id = (direction + rideEntry->vehicles[0].base_image_id) | session->TrackColours[SCHEME_MISC];
 
     rct_crooked_house_bound_box boundBox = crooked_house_data[segment];
-    sub_98197C(
+    PaintAddImageAsParent(
         session, image_id, x_offset, y_offset, boundBox.length_x, boundBox.length_y, 127, height + 3, boundBox.offset_x,
         boundBox.offset_y, height + 3);
 }
@@ -65,16 +69,18 @@ static void paint_crooked_house(
     trackSequence = track_map_3x3[direction][trackSequence];
 
     int32_t edges = edges_3x3[trackSequence];
-    Ride* ride = get_ride(rideIndex);
-    LocationXY16 position = session->MapPosition;
 
     wooden_a_supports_paint_setup(session, (direction & 1), 0, height, session->TrackColours[SCHEME_MISC], nullptr);
 
     track_paint_util_paint_floor(session, edges, session->TrackColours[SCHEME_TRACK], height, floorSpritesCork);
 
-    track_paint_util_paint_fences(
-        session, edges, position, tileElement, ride, session->TrackColours[SCHEME_MISC], height, fenceSpritesRope,
-        session->CurrentRotation);
+    auto ride = get_ride(rideIndex);
+    if (ride != nullptr)
+    {
+        track_paint_util_paint_fences(
+            session, edges, session->MapPosition, tileElement, ride, session->TrackColours[SCHEME_MISC], height,
+            fenceSpritesRope, session->CurrentRotation);
+    }
 
     switch (trackSequence)
     {
@@ -117,9 +123,9 @@ static void paint_crooked_house(
     paint_util_set_general_support_height(session, height + 128, 0x20);
 }
 
-TRACK_PAINT_FUNCTION get_track_paint_function_crooked_house(int32_t trackType, int32_t direction)
+TRACK_PAINT_FUNCTION get_track_paint_function_crooked_house(int32_t trackType)
 {
-    if (trackType != FLAT_TRACK_ELEM_3_X_3)
+    if (trackType != TrackElemType::FlatTrack3x3)
     {
         return nullptr;
     }

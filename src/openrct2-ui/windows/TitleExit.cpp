@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (c) 2014-2019 OpenRCT2 developers
+ * Copyright (c) 2014-2020 OpenRCT2 developers
  *
  * For a complete list of all authors, please refer to contributors.md
  * Interested in contributing? Visit https://github.com/OpenRCT2/OpenRCT2
@@ -21,43 +21,18 @@ enum WINDOW_TITLE_EXIT_WIDGET_IDX {
 };
 
 static rct_widget window_title_exit_widgets[] = {
-    { WWT_IMGBTN, 2, 0, 39, 0, 63, SPR_MENU_EXIT, STR_EXIT },
+    MakeWidget({0, 0}, {40, 64}, WindowWidgetType::ImgBtn, WindowColour::Tertiary, SPR_MENU_EXIT, STR_EXIT),
     { WIDGETS_END },
 };
 
 static void window_title_exit_paint(rct_window *w, rct_drawpixelinfo *dpi);
 static void window_title_exit_mouseup(rct_window *w, rct_widgetindex widgetIndex);
 
-static rct_window_event_list window_title_exit_events = {
-    nullptr,
-    window_title_exit_mouseup,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    window_title_exit_paint,
-    nullptr
-};
+static rct_window_event_list window_title_exit_events([](auto& events)
+{
+    events.mouse_up = &window_title_exit_mouseup;
+    events.paint = &window_title_exit_paint;
+});
 // clang-format on
 
 /**
@@ -68,12 +43,12 @@ rct_window* window_title_exit_open()
 {
     rct_window* window;
 
-    window = window_create(
-        context_get_width() - 40, context_get_height() - 64, 40, 64, &window_title_exit_events, WC_TITLE_EXIT,
+    window = WindowCreate(
+        ScreenCoordsXY(context_get_width() - 40, context_get_height() - 64), 40, 64, &window_title_exit_events, WC_TITLE_EXIT,
         WF_STICK_TO_BACK | WF_TRANSPARENT);
     window->widgets = window_title_exit_widgets;
     window->enabled_widgets |= (1ULL << WIDX_EXIT);
-    window_init_scroll_widgets(window);
+    WindowInitScrollWidgets(window);
 
     return window;
 }
@@ -84,7 +59,7 @@ rct_window* window_title_exit_open()
  */
 static void window_title_exit_mouseup(rct_window* w, rct_widgetindex widgetIndex)
 {
-    if (gIntroState != INTRO_STATE_NONE)
+    if (gIntroState != IntroState::None)
         return;
 
     switch (widgetIndex)
@@ -102,5 +77,5 @@ static void window_title_exit_mouseup(rct_window* w, rct_widgetindex widgetIndex
  */
 static void window_title_exit_paint(rct_window* w, rct_drawpixelinfo* dpi)
 {
-    window_draw_widgets(w, dpi);
+    WindowDrawWidgets(w, dpi);
 }

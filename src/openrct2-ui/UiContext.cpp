@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (c) 2014-2019 OpenRCT2 developers
+ * Copyright (c) 2014-2020 OpenRCT2 developers
  *
  * For a complete list of all authors, please refer to contributors.md
  * Interested in contributing? Visit https://github.com/OpenRCT2/OpenRCT2
@@ -14,9 +14,10 @@
 #include "TextComposition.h"
 #include "WindowManager.h"
 #include "drawing/engines/DrawingEngineFactory.hpp"
-#include "input/KeyboardShortcuts.h"
+#include "input/ShortcutManager.h"
 #include "interface/InGameConsole.h"
 #include "interface/Theme.h"
+#include "scripting/UiExtensions.h"
 #include "title/TitleSequencePlayer.h"
 
 #include <SDL.h>
@@ -25,6 +26,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <memory>
+#include <openrct2-ui/input/InputManager.h>
 #include <openrct2-ui/interface/Window.h>
 #include <openrct2/Context.h>
 #include <openrct2/Input.h>
@@ -38,14 +40,16 @@
 #include <openrct2/interface/InteractiveConsole.h>
 #include <openrct2/localisation/StringIds.h>
 #include <openrct2/platform/Platform2.h>
+#include <openrct2/scripting/ScriptEngine.h>
 #include <openrct2/title/TitleSequencePlayer.h>
 #include <openrct2/ui/UiContext.h>
 #include <openrct2/ui/WindowManager.h>
+#include <openrct2/world/Location.hpp>
 #include <vector>
 
 using namespace OpenRCT2;
 using namespace OpenRCT2::Drawing;
-using namespace OpenRCT2::Input;
+using namespace OpenRCT2::Scripting;
 using namespace OpenRCT2::Ui;
 
 #ifdef __MACOSX__
@@ -68,14 +72,15 @@ private:
     SDL_Window* _window = nullptr;
     int32_t _width = 0;
     int32_t _height = 0;
-    int32_t _scaleQuality = 0;
+    ScaleQuality _scaleQuality = ScaleQuality::NearestNeighbour;
 
     std::vector<Resolution> _fsResolutions;
 
     bool _steamOverlayActive = false;
 
     // Input
-    KeyboardShortcuts _keyboardShortcuts;
+    InputManager _inputManager;
+    ShortcutManager _shortcutManager;
     TextComposition _textComposition;
     CursorState _cursorState = {};
     uint32_t _lastKeyPressed = 0;
@@ -93,18 +98,27 @@ public:
         return _inGameConsole;
     }
 
+    InputManager& GetInputManager()
+    {
+        return _inputManager;
+    }
+
+    ShortcutManager& GetShortcutManager()
+    {
+        return _shortcutManager;
+    }
+
     explicit UiContext(const std::shared_ptr<IPlatformEnvironment>& env)
         : _platformUiContext(CreatePlatformUiContext())
         , _windowManager(CreateWindowManager())
-        , _keyboardShortcuts(env)
+        , _shortcutManager(env)
     {
-        if (SDL_Init(SDL_INIT_VIDEO) < 0)
+        if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_JOYSTICK) < 0)
         {
-            SDLException::Throw("SDL_Init(SDL_INIT_VIDEO)");
+            SDLException::Throw("SDL_Init(SDL_INIT_VIDEO | SDL_INIT_JOYSTICK)");
         }
         _cursorRepository.LoadCursors();
-        _keyboardShortcuts.Reset();
-        _keyboardShortcuts.Load();
+        _shortcutManager.LoadUserBindings();
     }
 
     ~UiContext() override
@@ -115,6 +129,14 @@ public:
         delete _platformUiContext;
     }
 
+    void Initialise() override
+    {
+#ifdef ENABLE_SCRIPTING
+        auto& scriptEngine = GetContext()->GetScriptEngine();
+        UiScriptExtensions::Extend(scriptEngine);
+#endif
+    }
+
     void Update() override
     {
         _inGameConsole.Update();
@@ -122,7 +144,7 @@ public:
 
     void Draw(rct_drawpixelinfo* dpi) override
     {
-        auto bgColour = theme_get_colour(WC_CHAT, 0);
+        auto bgColour = ThemeGetColour(WC_CHAT, 0);
         chat_draw(dpi, bgColour);
         _inGameConsole.Draw(dpi);
     }
@@ -143,7 +165,7 @@ public:
         return _height;
     }
 
-    int32_t GetScaleQuality() override
+    ScaleQuality GetScaleQuality() override
     {
         return _scaleQuality;
     }
@@ -151,7 +173,7 @@ public:
     void SetFullscreenMode(FULLSCREEN_MODE mode) override
     {
         static constexpr const int32_t SDLFSFlags[] = { 0, SDL_WINDOW_FULLSCREEN, SDL_WINDOW_FULLSCREEN_DESKTOP };
-        uint32_t windowFlags = SDLFSFlags[(int32_t)mode];
+        uint32_t windowFlags = SDLFSFlags[static_cast<int32_t>(mode)];
 
         // HACK Changing window size when in fullscreen usually has no effect
         if (mode == FULLSCREEN_MODE::FULLSCREEN)
@@ -219,12 +241,12 @@ public:
         return _keysPressed;
     }
 
-    CURSOR_ID GetCursor() override
+    CursorID GetCursor() override
     {
         return _cursorRepository.GetCurrentCursor();
     }
 
-    void SetCursor(CURSOR_ID cursor) override
+    void SetCursor(CursorID cursor) override
     {
         _cursorRepository.SetCurrentCursor(cursor);
     }
@@ -239,14 +261,16 @@ public:
         SDL_ShowCursor(value ? SDL_ENABLE : SDL_DISABLE);
     }
 
-    void GetCursorPosition(int32_t* x, int32_t* y) override
+    ScreenCoordsXY GetCursorPosition() override
     {
-        SDL_GetMouseState(x, y);
+        ScreenCoordsXY cursorPosition;
+        SDL_GetMouseState(&cursorPosition.x, &cursorPosition.y);
+        return cursorPosition;
     }
 
-    void SetCursorPosition(int32_t x, int32_t y) override
+    void SetCursorPosition(const ScreenCoordsXY& cursorPosition) override
     {
-        SDL_WarpMouseInWindow(nullptr, x, y);
+        SDL_WarpMouseInWindow(nullptr, cursorPosition.x, cursorPosition.y);
     }
 
     void SetCursorTrap(bool value) override
@@ -266,7 +290,7 @@ public:
         return std::make_shared<DrawingEngineFactory>();
     }
 
-    void DrawRainAnimation(IRainDrawer* rainDrawer, rct_drawpixelinfo* dpi, DrawRainFunc drawFunc) override
+    void DrawWeatherAnimation(IWeatherDrawer* weatherDrawer, rct_drawpixelinfo* dpi, DrawWeatherFunc drawFunc) override
     {
         int32_t left = dpi->x;
         int32_t right = left + dpi->width;
@@ -275,7 +299,7 @@ public:
 
         for (auto& w : g_window_list)
         {
-            DrawRainWindow(rainDrawer, w.get(), left, right, top, bottom, drawFunc);
+            DrawWeatherWindow(weatherDrawer, w.get(), left, right, top, bottom, drawFunc);
         }
     }
 
@@ -365,8 +389,8 @@ public:
                     }
                     break;
                 case SDL_MOUSEMOTION:
-                    _cursorState.x = (int32_t)(e.motion.x / gConfigGeneral.window_scale);
-                    _cursorState.y = (int32_t)(e.motion.y / gConfigGeneral.window_scale);
+                    _cursorState.position = { static_cast<int32_t>(e.motion.x / gConfigGeneral.window_scale),
+                                              static_cast<int32_t>(e.motion.y / gConfigGeneral.window_scale) };
                     break;
                 case SDL_MOUSEWHEEL:
                     if (_inGameConsole.IsOpen())
@@ -382,12 +406,12 @@ public:
                     {
                         break;
                     }
-                    int32_t x = (int32_t)(e.button.x / gConfigGeneral.window_scale);
-                    int32_t y = (int32_t)(e.button.y / gConfigGeneral.window_scale);
+                    ScreenCoordsXY mousePos = { static_cast<int32_t>(e.button.x / gConfigGeneral.window_scale),
+                                                static_cast<int32_t>(e.button.y / gConfigGeneral.window_scale) };
                     switch (e.button.button)
                     {
                         case SDL_BUTTON_LEFT:
-                            store_mouse_input(MOUSE_STATE_LEFT_PRESS, x, y);
+                            StoreMouseInput(MouseState::LeftPress, mousePos);
                             _cursorState.left = CURSOR_PRESSED;
                             _cursorState.old = 1;
                             break;
@@ -395,12 +419,21 @@ public:
                             _cursorState.middle = CURSOR_PRESSED;
                             break;
                         case SDL_BUTTON_RIGHT:
-                            store_mouse_input(MOUSE_STATE_RIGHT_PRESS, x, y);
+                            StoreMouseInput(MouseState::RightPress, mousePos);
                             _cursorState.right = CURSOR_PRESSED;
                             _cursorState.old = 2;
                             break;
                     }
                     _cursorState.touch = false;
+
+                    {
+                        InputEvent ie;
+                        ie.DeviceKind = InputDeviceKind::Mouse;
+                        ie.Modifiers = SDL_GetModState();
+                        ie.Button = e.button.button;
+                        ie.State = InputEventState::Down;
+                        _inputManager.QueueInputEvent(std::move(ie));
+                    }
                     break;
                 }
                 case SDL_MOUSEBUTTONUP:
@@ -409,12 +442,12 @@ public:
                     {
                         break;
                     }
-                    int32_t x = (int32_t)(e.button.x / gConfigGeneral.window_scale);
-                    int32_t y = (int32_t)(e.button.y / gConfigGeneral.window_scale);
+                    ScreenCoordsXY mousePos = { static_cast<int32_t>(e.button.x / gConfigGeneral.window_scale),
+                                                static_cast<int32_t>(e.button.y / gConfigGeneral.window_scale) };
                     switch (e.button.button)
                     {
                         case SDL_BUTTON_LEFT:
-                            store_mouse_input(MOUSE_STATE_LEFT_RELEASE, x, y);
+                            StoreMouseInput(MouseState::LeftRelease, mousePos);
                             _cursorState.left = CURSOR_RELEASED;
                             _cursorState.old = 3;
                             break;
@@ -422,24 +455,33 @@ public:
                             _cursorState.middle = CURSOR_RELEASED;
                             break;
                         case SDL_BUTTON_RIGHT:
-                            store_mouse_input(MOUSE_STATE_RIGHT_RELEASE, x, y);
+                            StoreMouseInput(MouseState::RightRelease, mousePos);
                             _cursorState.right = CURSOR_RELEASED;
                             _cursorState.old = 4;
                             break;
                     }
                     _cursorState.touch = false;
+
+                    {
+                        InputEvent ie;
+                        ie.DeviceKind = InputDeviceKind::Mouse;
+                        ie.Modifiers = SDL_GetModState();
+                        ie.Button = e.button.button;
+                        ie.State = InputEventState::Release;
+                        _inputManager.QueueInputEvent(std::move(ie));
+                    }
                     break;
                 }
                 // Apple sends touchscreen events for trackpads, so ignore these events on macOS
 #ifndef __MACOSX__
                 case SDL_FINGERMOTION:
-                    _cursorState.x = (int32_t)(e.tfinger.x * _width);
-                    _cursorState.y = (int32_t)(e.tfinger.y * _height);
+                    _cursorState.position = { static_cast<int32_t>(e.tfinger.x * _width),
+                                              static_cast<int32_t>(e.tfinger.y * _height) };
                     break;
                 case SDL_FINGERDOWN:
                 {
-                    int32_t x = (int32_t)(e.tfinger.x * _width);
-                    int32_t y = (int32_t)(e.tfinger.y * _height);
+                    ScreenCoordsXY fingerPos = { static_cast<int32_t>(e.tfinger.x * _width),
+                                                 static_cast<int32_t>(e.tfinger.y * _height) };
 
                     _cursorState.touchIsDouble
                         = (!_cursorState.touchIsDouble
@@ -447,13 +489,13 @@ public:
 
                     if (_cursorState.touchIsDouble)
                     {
-                        store_mouse_input(MOUSE_STATE_RIGHT_PRESS, x, y);
+                        StoreMouseInput(MouseState::RightPress, fingerPos);
                         _cursorState.right = CURSOR_PRESSED;
                         _cursorState.old = 2;
                     }
                     else
                     {
-                        store_mouse_input(MOUSE_STATE_LEFT_PRESS, x, y);
+                        StoreMouseInput(MouseState::LeftPress, fingerPos);
                         _cursorState.left = CURSOR_PRESSED;
                         _cursorState.old = 1;
                     }
@@ -463,18 +505,18 @@ public:
                 }
                 case SDL_FINGERUP:
                 {
-                    int32_t x = (int32_t)(e.tfinger.x * _width);
-                    int32_t y = (int32_t)(e.tfinger.y * _height);
+                    ScreenCoordsXY fingerPos = { static_cast<int32_t>(e.tfinger.x * _width),
+                                                 static_cast<int32_t>(e.tfinger.y * _height) };
 
                     if (_cursorState.touchIsDouble)
                     {
-                        store_mouse_input(MOUSE_STATE_RIGHT_RELEASE, x, y);
+                        StoreMouseInput(MouseState::RightRelease, fingerPos);
                         _cursorState.right = CURSOR_RELEASED;
                         _cursorState.old = 4;
                     }
                     else
                     {
-                        store_mouse_input(MOUSE_STATE_LEFT_RELEASE, x, y);
+                        StoreMouseInput(MouseState::LeftRelease, fingerPos);
                         _cursorState.left = CURSOR_RELEASED;
                         _cursorState.old = 3;
                     }
@@ -483,8 +525,20 @@ public:
                 }
 #endif
                 case SDL_KEYDOWN:
+                {
                     _textComposition.HandleMessage(&e);
+                    auto ie = GetInputEventFromSDLEvent(e);
+                    ie.State = InputEventState::Down;
+                    _inputManager.QueueInputEvent(std::move(ie));
                     break;
+                }
+                case SDL_KEYUP:
+                {
+                    auto ie = GetInputEventFromSDLEvent(e);
+                    ie.State = InputEventState::Release;
+                    _inputManager.QueueInputEvent(std::move(ie));
+                    break;
+                }
                 case SDL_MULTIGESTURE:
                     if (e.mgesture.numFingers == 2)
                     {
@@ -497,7 +551,7 @@ public:
 
                         // Zoom gesture
                         constexpr int32_t tolerance = 128;
-                        int32_t gesturePixels = (int32_t)(_gestureRadius * _width);
+                        int32_t gesturePixels = static_cast<int32_t>(_gestureRadius * _width);
                         if (abs(gesturePixels) > tolerance)
                         {
                             _gestureRadius = 0;
@@ -512,7 +566,10 @@ public:
                     _textComposition.HandleMessage(&e);
                     break;
                 default:
+                {
+                    _inputManager.QueueInputEvent(e);
                     break;
+                }
             }
         }
 
@@ -533,15 +590,15 @@ public:
         _scaleQuality = gConfigGeneral.scale_quality;
         if (gConfigGeneral.window_scale == std::floor(gConfigGeneral.window_scale))
         {
-            _scaleQuality = SCALE_QUALITY_NN;
+            _scaleQuality = ScaleQuality::NearestNeighbour;
         }
 
-        int32_t scaleQuality = _scaleQuality;
-        if (_scaleQuality == SCALE_QUALITY_SMOOTH_NN)
+        ScaleQuality scaleQuality = _scaleQuality;
+        if (_scaleQuality == ScaleQuality::SmoothNearestNeighbour)
         {
-            scaleQuality = SCALE_QUALITY_LINEAR;
+            scaleQuality = ScaleQuality::Linear;
         }
-        snprintf(scaleQualityBuffer, sizeof(scaleQualityBuffer), "%u", scaleQuality);
+        snprintf(scaleQualityBuffer, sizeof(scaleQualityBuffer), "%u", static_cast<int32_t>(scaleQuality));
         SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, scaleQualityBuffer);
 
         int32_t width, height;
@@ -555,10 +612,10 @@ public:
 
         // Set window position to default display
         int32_t defaultDisplay = std::clamp(gConfigGeneral.default_display, 0, 0xFFFF);
-        int32_t x = SDL_WINDOWPOS_UNDEFINED_DISPLAY(defaultDisplay);
-        int32_t y = SDL_WINDOWPOS_UNDEFINED_DISPLAY(defaultDisplay);
+        auto windowPos = ScreenCoordsXY{ static_cast<int32_t>(SDL_WINDOWPOS_UNDEFINED_DISPLAY(defaultDisplay)),
+                                         static_cast<int32_t>(SDL_WINDOWPOS_UNDEFINED_DISPLAY(defaultDisplay)) };
 
-        CreateWindow(x, y);
+        CreateWindow(windowPos);
 
         // Check if steam overlay renderer is loaded into the process
         _steamOverlayActive = _platformUiContext->IsSteamOverlayAttached();
@@ -577,12 +634,12 @@ public:
     void RecreateWindow() override
     {
         // Use the position of the current window for the new window
-        int32_t x, y;
+        ScreenCoordsXY windowPos;
         SDL_SetWindowFullscreen(_window, 0);
-        SDL_GetWindowPosition(_window, &x, &y);
+        SDL_GetWindowPosition(_window, &windowPos.x, &windowPos.y);
 
         CloseWindow();
-        CreateWindow(x, y);
+        CreateWindow(windowPos);
     }
 
     void ShowMessageBox(const std::string& message) override
@@ -590,9 +647,24 @@ public:
         _platformUiContext->ShowMessageBox(_window, message);
     }
 
+    bool HasMenuSupport() override
+    {
+        return _platformUiContext->HasMenuSupport();
+    }
+
+    int32_t ShowMenuDialog(const std::vector<std::string>& options, const std::string& title, const std::string& text) override
+    {
+        return _platformUiContext->ShowMenuDialog(options, title, text);
+    }
+
     void OpenFolder(const std::string& path) override
     {
         _platformUiContext->OpenFolder(path);
+    }
+
+    void OpenURL(const std::string& url) override
+    {
+        _platformUiContext->OpenURL(url);
     }
 
     std::string ShowFileDialog(const FileDialogDesc& desc) override
@@ -603,6 +675,11 @@ public:
     std::string ShowDirectoryDialog(const std::string& title) override
     {
         return _platformUiContext->ShowDirectoryDialog(_window, title);
+    }
+
+    bool HasFilePicker() const override
+    {
+        return _platformUiContext->HasFilePicker();
     }
 
     IWindowManager* GetWindowManager() override
@@ -620,15 +697,14 @@ public:
         if (_titleSequencePlayer == nullptr)
         {
             auto context = GetContext();
-            auto scenarioRepository = context->GetScenarioRepository();
             auto gameState = context->GetGameState();
-            _titleSequencePlayer = CreateTitleSequencePlayer(*scenarioRepository, *gameState);
+            _titleSequencePlayer = CreateTitleSequencePlayer(*gameState);
         }
         return _titleSequencePlayer.get();
     }
 
 private:
-    void CreateWindow(int32_t x, int32_t y)
+    void CreateWindow(const ScreenCoordsXY& windowPos)
     {
         // Get saved window size
         int32_t width = gConfigGeneral.window_width;
@@ -639,17 +715,19 @@ private:
             height = 480;
 
         // Create window in window first rather than fullscreen so we have the display the window is on first
-        uint32_t flags = SDL_WINDOW_RESIZABLE;
-        if (gConfigGeneral.drawing_engine == DRAWING_ENGINE_OPENGL)
+        uint32_t flags = SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI;
+        if (gConfigGeneral.drawing_engine == DrawingEngine::OpenGL)
         {
             flags |= SDL_WINDOW_OPENGL;
         }
 
-        _window = SDL_CreateWindow(OPENRCT2_NAME, x, y, width, height, flags);
+        _window = SDL_CreateWindow(OPENRCT2_NAME, windowPos.x, windowPos.y, width, height, flags);
         if (_window == nullptr)
         {
             SDLException::Throw("SDL_CreateWindow(...)");
         }
+
+        ApplyScreenSaverLockSetting();
 
         SDL_SetWindowMinimumSize(_window, 720, 480);
         SetCursorTrap(gConfigGeneral.trap_cursor);
@@ -660,16 +738,21 @@ private:
         OnResize(width, height);
 
         UpdateFullscreenResolutions();
-        SetFullscreenMode((FULLSCREEN_MODE)gConfigGeneral.fullscreen_mode);
 
+        // Fix #4022: Force Mac to windowed to avoid cursor offset on launch issue
+#ifdef __MACOSX__
+        gConfigGeneral.fullscreen_mode = static_cast<int32_t>(OpenRCT2::Ui::FULLSCREEN_MODE::WINDOWED);
+#else
+        SetFullscreenMode(static_cast<FULLSCREEN_MODE>(gConfigGeneral.fullscreen_mode));
+#endif
         TriggerResize();
     }
 
     void OnResize(int32_t width, int32_t height)
     {
         // Scale the native window size to the game's canvas size
-        _width = (int32_t)(width / gConfigGeneral.window_scale);
-        _height = (int32_t)(height / gConfigGeneral.window_scale);
+        _width = static_cast<int32_t>(width / gConfigGeneral.window_scale);
+        _height = static_cast<int32_t>(height / gConfigGeneral.window_scale);
 
         drawing_engine_resize();
 
@@ -712,13 +795,13 @@ private:
 
         // Get resolutions
         auto resolutions = std::vector<Resolution>();
-        float desktopAspectRatio = (float)mode.w / mode.h;
+        float desktopAspectRatio = static_cast<float>(mode.w) / mode.h;
         for (int32_t i = 0; i < numDisplayModes; i++)
         {
             SDL_GetDisplayMode(displayIndex, i, &mode);
             if (mode.w > 0 && mode.h > 0)
             {
-                float aspectRatio = (float)mode.w / mode.h;
+                float aspectRatio = static_cast<float>(mode.w) / mode.h;
                 if (std::fabs(desktopAspectRatio - aspectRatio) < 0.1f)
                 {
                     resolutions.push_back({ mode.w, mode.h });
@@ -740,7 +823,7 @@ private:
         resolutions.erase(last, resolutions.end());
 
         // Update config fullscreen resolution if not set
-        if (gConfigGeneral.fullscreen_width == -1 || gConfigGeneral.fullscreen_height == -1)
+        if (!resolutions.empty() && (gConfigGeneral.fullscreen_width == -1 || gConfigGeneral.fullscreen_height == -1))
         {
             gConfigGeneral.fullscreen_width = resolutions.back().Width;
             gConfigGeneral.fullscreen_height = resolutions.back().Height;
@@ -779,35 +862,36 @@ private:
         return SDL_GetWindowFlags(_window);
     }
 
-    static void DrawRainWindow(
-        IRainDrawer* rainDrawer, rct_window* original_w, int16_t left, int16_t right, int16_t top, int16_t bottom,
-        DrawRainFunc drawFunc)
+    static void DrawWeatherWindow(
+        IWeatherDrawer* weatherDrawer, rct_window* original_w, int16_t left, int16_t right, int16_t top, int16_t bottom,
+        DrawWeatherFunc drawFunc)
     {
         rct_window* w{};
-        for (auto i = window_get_index(original_w) + 1;; i++)
+        auto itStart = window_get_iterator(original_w);
+        for (auto it = std::next(itStart);; it++)
         {
-            if (i >= g_window_list.size())
+            if (it == g_window_list.end())
             {
-                // Loop ended, draw rain for original_w
+                // Loop ended, draw weather for original_w
                 auto vp = original_w->viewport;
                 if (vp != nullptr)
                 {
-                    left = std::max<int16_t>(left, vp->x);
-                    right = std::min<int16_t>(right, vp->x + vp->width);
-                    top = std::max<int16_t>(top, vp->y);
-                    bottom = std::min<int16_t>(bottom, vp->y + vp->height);
+                    left = std::max<int16_t>(left, vp->pos.x);
+                    right = std::min<int16_t>(right, vp->pos.x + vp->width);
+                    top = std::max<int16_t>(top, vp->pos.y);
+                    bottom = std::min<int16_t>(bottom, vp->pos.y + vp->height);
                     if (left < right && top < bottom)
                     {
                         auto width = right - left;
                         auto height = bottom - top;
-                        drawFunc(rainDrawer, left, top, width, height);
+                        drawFunc(weatherDrawer, left, top, width, height);
                     }
                 }
                 return;
             }
 
-            w = g_window_list[i].get();
-            if (right <= w->x || bottom <= w->y)
+            w = it->get();
+            if (right <= w->windowPos.x || bottom <= w->windowPos.y)
             {
                 continue;
             }
@@ -817,46 +901,72 @@ private:
                 continue;
             }
 
-            if (left >= w->x)
+            if (left >= w->windowPos.x)
             {
                 break;
             }
 
-            DrawRainWindow(rainDrawer, original_w, left, w->x, top, bottom, drawFunc);
+            DrawWeatherWindow(weatherDrawer, original_w, left, w->windowPos.x, top, bottom, drawFunc);
 
-            left = w->x;
-            DrawRainWindow(rainDrawer, original_w, left, right, top, bottom, drawFunc);
+            left = w->windowPos.x;
+            DrawWeatherWindow(weatherDrawer, original_w, left, right, top, bottom, drawFunc);
             return;
         }
 
         int16_t w_right = RCT_WINDOW_RIGHT(w);
         if (right > w_right)
         {
-            DrawRainWindow(rainDrawer, original_w, left, w_right, top, bottom, drawFunc);
+            DrawWeatherWindow(weatherDrawer, original_w, left, w_right, top, bottom, drawFunc);
 
             left = w_right;
-            DrawRainWindow(rainDrawer, original_w, left, right, top, bottom, drawFunc);
+            DrawWeatherWindow(weatherDrawer, original_w, left, right, top, bottom, drawFunc);
             return;
         }
 
-        if (top < w->y)
+        if (top < w->windowPos.y)
         {
-            DrawRainWindow(rainDrawer, original_w, left, right, top, w->y, drawFunc);
+            DrawWeatherWindow(weatherDrawer, original_w, left, right, top, w->windowPos.y, drawFunc);
 
-            top = w->y;
-            DrawRainWindow(rainDrawer, original_w, left, right, top, bottom, drawFunc);
+            top = w->windowPos.y;
+            DrawWeatherWindow(weatherDrawer, original_w, left, right, top, bottom, drawFunc);
             return;
         }
 
         int16_t w_bottom = RCT_WINDOW_BOTTOM(w);
         if (bottom > w_bottom)
         {
-            DrawRainWindow(rainDrawer, original_w, left, right, top, w_bottom, drawFunc);
+            DrawWeatherWindow(weatherDrawer, original_w, left, right, top, w_bottom, drawFunc);
 
             top = w_bottom;
-            DrawRainWindow(rainDrawer, original_w, left, right, top, bottom, drawFunc);
+            DrawWeatherWindow(weatherDrawer, original_w, left, right, top, bottom, drawFunc);
             return;
         }
+    }
+
+    InputEvent GetInputEventFromSDLEvent(const SDL_Event& e)
+    {
+        InputEvent ie;
+        ie.DeviceKind = InputDeviceKind::Keyboard;
+        ie.Modifiers = e.key.keysym.mod;
+        ie.Button = e.key.keysym.sym;
+
+        // Handle dead keys
+        if (ie.Button == (SDLK_SCANCODE_MASK | 0))
+        {
+            switch (e.key.keysym.scancode)
+            {
+                case SDL_SCANCODE_APOSTROPHE:
+                    ie.Button = '\'';
+                    break;
+                case SDL_SCANCODE_GRAVE:
+                    ie.Button = '`';
+                    break;
+                default:
+                    break;
+            }
+        }
+
+        return ie;
     }
 };
 
@@ -869,4 +979,16 @@ InGameConsole& OpenRCT2::Ui::GetInGameConsole()
 {
     auto uiContext = std::static_pointer_cast<UiContext>(GetContext()->GetUiContext());
     return uiContext->GetInGameConsole();
+}
+
+InputManager& OpenRCT2::Ui::GetInputManager()
+{
+    auto uiContext = std::static_pointer_cast<UiContext>(GetContext()->GetUiContext());
+    return uiContext->GetInputManager();
+}
+
+ShortcutManager& OpenRCT2::Ui::GetShortcutManager()
+{
+    auto uiContext = std::static_pointer_cast<UiContext>(GetContext()->GetUiContext());
+    return uiContext->GetShortcutManager();
 }

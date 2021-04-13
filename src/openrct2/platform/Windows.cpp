@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (c) 2014-2019 OpenRCT2 developers
+ * Copyright (c) 2014-2020 OpenRCT2 developers
  *
  * For a complete list of all authors, please refer to contributors.md
  * Interested in contributing? Visit https://github.com/OpenRCT2/OpenRCT2
@@ -7,7 +7,7 @@
  * OpenRCT2 is licensed under the GNU General Public License version 3.
  *****************************************************************************/
 
-#ifdef __MINGW32__
+#if defined(__MINGW32__) && !defined(WINVER) && !defined(_WIN32_WINNT)
 // 0x0600 == vista
 #    define WINVER 0x0600
 #    define _WIN32_WINNT 0x0600
@@ -16,20 +16,28 @@
 #ifdef _WIN32
 
 // Windows.h needs to be included first
+// clang-format off
 #    include <windows.h>
+#    include <shellapi.h>
+// clang-format on
 
 // Then the rest
 #    include "../OpenRCT2.h"
 #    include "../Version.h"
 #    include "../config/Config.h"
+#    include "../core/String.hpp"
 #    include "../localisation/Date.h"
 #    include "../localisation/Language.h"
 #    include "../rct2/RCT2.h"
 #    include "../util/Util.h"
+#    include "Platform2.h"
 #    include "platform.h"
 
+#    include <algorithm>
+#    include <array>
 #    include <iterator>
 #    include <lmcons.h>
+#    include <memory>
 #    include <psapi.h>
 #    include <shlobj.h>
 #    include <sys/stat.h>
@@ -47,53 +55,14 @@
 
 #    define OPENRCT2_DLL_MODULE_NAME "openrct2.dll"
 
-static HMODULE _dllModule = nullptr;
-
-static HMODULE plaform_get_dll_module()
-{
-    if (_dllModule == nullptr)
-    {
-        _dllModule = GetModuleHandle(nullptr);
-    }
-    return _dllModule;
-}
-
-void platform_get_date_local(rct2_date* out_date)
-{
-    assert(out_date != nullptr);
-    SYSTEMTIME systime;
-
-    GetLocalTime(&systime);
-    out_date->day = systime.wDay;
-    out_date->month = systime.wMonth;
-    out_date->year = systime.wYear;
-    out_date->day_of_week = systime.wDayOfWeek;
-}
-
-void platform_get_time_local(rct2_time* out_time)
-{
-    assert(out_time != nullptr);
-    SYSTEMTIME systime;
-    GetLocalTime(&systime);
-    out_time->hour = systime.wHour;
-    out_time->minute = systime.wMinute;
-    out_time->second = systime.wSecond;
-}
-
-bool platform_file_exists(const utf8* path)
-{
-    wchar_t* wPath = utf8_to_widechar(path);
-    DWORD result = GetFileAttributesW(wPath);
-    DWORD error = GetLastError();
-    free(wPath);
-    return !(result == INVALID_FILE_ATTRIBUTES && (error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND));
-}
+#    if _WIN32_WINNT < 0x600
+#        define swprintf_s(a, b, c, d, ...) swprintf(a, b, c, ##__VA_ARGS__)
+#    endif
 
 bool platform_directory_exists(const utf8* path)
 {
-    wchar_t* wPath = utf8_to_widechar(path);
-    DWORD dwAttrib = GetFileAttributesW(wPath);
-    free(wPath);
+    auto wPath = String::ToWideChar(path);
+    DWORD dwAttrib = GetFileAttributesW(wPath.c_str());
     return dwAttrib != INVALID_FILE_ATTRIBUTES && (dwAttrib & FILE_ATTRIBUTE_DIRECTORY);
 }
 
@@ -103,20 +72,7 @@ bool platform_original_game_data_exists(const utf8* path)
     safe_strcpy(checkPath, path, MAX_PATH);
     safe_strcat_path(checkPath, "Data", MAX_PATH);
     safe_strcat_path(checkPath, "g1.dat", MAX_PATH);
-    return platform_file_exists(checkPath);
-}
-
-bool platform_original_rct1_data_exists(const utf8* path)
-{
-    char checkPath[MAX_PATH];
-    char checkPath2[MAX_PATH];
-    safe_strcpy(checkPath, path, MAX_PATH);
-    safe_strcpy(checkPath2, path, MAX_PATH);
-    safe_strcat_path(checkPath, "Data", MAX_PATH);
-    safe_strcat_path(checkPath2, "Data", MAX_PATH);
-    safe_strcat_path(checkPath, "csg1.dat", MAX_PATH);
-    safe_strcat_path(checkPath2, "csg1.1", MAX_PATH);
-    return platform_file_exists(checkPath) || platform_file_exists(checkPath2);
+    return Platform::FileExists(checkPath);
 }
 
 bool platform_ensure_directory_exists(const utf8* path)
@@ -124,27 +80,20 @@ bool platform_ensure_directory_exists(const utf8* path)
     if (platform_directory_exists(path))
         return 1;
 
-    wchar_t* wPath = utf8_to_widechar(path);
-    BOOL success = CreateDirectoryW(wPath, nullptr);
-    free(wPath);
-    return success == TRUE;
+    auto wPath = String::ToWideChar(path);
+    auto success = CreateDirectoryW(wPath.c_str(), nullptr);
+    return success != FALSE;
 }
 
 bool platform_directory_delete(const utf8* path)
 {
-    wchar_t pszFrom[MAX_PATH];
-
-    wchar_t* wPath = utf8_to_widechar(path);
-    wcsncpy(pszFrom, wPath, MAX_PATH);
-
-    // Needs to be double-null terminated for some weird reason
-    pszFrom[wcslen(wPath) + 1] = 0;
-    free(wPath);
+    // Needs to be double-null terminated as pFrom is a null terminated array of strings
+    auto wPath = String::ToWideChar(path) + L"\0";
 
     SHFILEOPSTRUCTW fileop;
     fileop.hwnd = nullptr;                           // no status display
     fileop.wFunc = FO_DELETE;                        // delete operation
-    fileop.pFrom = pszFrom;                          // source file name as double null terminated string
+    fileop.pFrom = wPath.c_str();                    // source file name as double null terminated string
     fileop.pTo = nullptr;                            // no destination needed
     fileop.fFlags = FOF_NOCONFIRMATION | FOF_SILENT; // do not prompt the user
 
@@ -167,7 +116,7 @@ bool platform_lock_single_instance()
         // Create new mutex
         status = CreateMutex(nullptr, FALSE, SINGLE_INSTANCE_MUTEX_NAME);
         if (status == nullptr)
-            log_error("unable to create mutex\n");
+            log_error("unable to create mutex");
 
         return true;
     }
@@ -186,30 +135,25 @@ int32_t platform_get_drives()
 
 bool platform_file_copy(const utf8* srcPath, const utf8* dstPath, bool overwrite)
 {
-    wchar_t* wSrcPath = utf8_to_widechar(srcPath);
-    wchar_t* wDstPath = utf8_to_widechar(dstPath);
-    BOOL success = CopyFileW(wSrcPath, wDstPath, overwrite ? FALSE : TRUE);
-    free(wSrcPath);
-    free(wDstPath);
-    return success == TRUE;
+    auto wSrcPath = String::ToWideChar(srcPath);
+    auto wDstPath = String::ToWideChar(dstPath);
+    auto success = CopyFileW(wSrcPath.c_str(), wDstPath.c_str(), overwrite ? FALSE : TRUE);
+    return success != FALSE;
 }
 
 bool platform_file_move(const utf8* srcPath, const utf8* dstPath)
 {
-    wchar_t* wSrcPath = utf8_to_widechar(srcPath);
-    wchar_t* wDstPath = utf8_to_widechar(dstPath);
-    BOOL success = MoveFileW(wSrcPath, wDstPath);
-    free(wSrcPath);
-    free(wDstPath);
-    return success == TRUE;
+    auto wSrcPath = String::ToWideChar(srcPath);
+    auto wDstPath = String::ToWideChar(dstPath);
+    auto success = MoveFileW(wSrcPath.c_str(), wDstPath.c_str());
+    return success != FALSE;
 }
 
 bool platform_file_delete(const utf8* path)
 {
-    wchar_t* wPath = utf8_to_widechar(path);
-    BOOL success = DeleteFileW(wPath);
-    free(wPath);
-    return success == TRUE;
+    auto wPath = String::ToWideChar(path);
+    auto success = DeleteFileW(wPath.c_str());
+    return success != FALSE;
 }
 
 bool platform_get_steam_path(utf8* outPath, size_t outSize)
@@ -229,14 +173,13 @@ bool platform_get_steam_path(utf8* outPath, size_t outSize)
         return false;
     }
 
-    wSteamPath = (wchar_t*)malloc(size);
-    result = RegQueryValueExW(hKey, L"SteamPath", nullptr, &type, (LPBYTE)wSteamPath, &size);
+    wSteamPath = reinterpret_cast<wchar_t*>(malloc(size));
+    result = RegQueryValueExW(hKey, L"SteamPath", nullptr, &type, reinterpret_cast<LPBYTE>(wSteamPath), &size);
     if (result == ERROR_SUCCESS)
     {
-        utf8* utf8SteamPath = widechar_to_utf8(wSteamPath);
-        safe_strcpy(outPath, utf8SteamPath, outSize);
+        auto utf8SteamPath = String::ToUtf8(wSteamPath);
+        safe_strcpy(outPath, utf8SteamPath.c_str(), outSize);
         safe_strcat_path(outPath, "steamapps\\common", outSize);
-        free(utf8SteamPath);
     }
     free(wSteamPath);
     RegCloseKey(hKey);
@@ -253,11 +196,25 @@ std::string platform_get_rct2_steam_dir()
     return "Rollercoaster Tycoon 2";
 }
 
+std::string platform_sanitise_filename(const std::string& path)
+{
+    static const std::array<std::string::value_type, 9> prohibited = { '<', '>', '*', '\\', ':', '|', '?', '"', '/' };
+    auto sanitised = path;
+    std::replace_if(
+        sanitised.begin(), sanitised.end(),
+        [](const std::string::value_type& ch) -> bool {
+            return std::find(prohibited.begin(), prohibited.end(), ch) != prohibited.end();
+        },
+        '_');
+    sanitised = String::Trim(sanitised);
+    return sanitised;
+}
+
 uint16_t platform_get_locale_language()
 {
     CHAR langCode[4];
 
-    if (GetLocaleInfo(LOCALE_USER_DEFAULT, LOCALE_SABBREVLANGNAME, (LPSTR)&langCode, sizeof(langCode)) == 0)
+    if (GetLocaleInfo(LOCALE_USER_DEFAULT, LOCALE_SABBREVLANGNAME, reinterpret_cast<LPSTR>(&langCode), sizeof(langCode)) == 0)
     {
         return LANGUAGE_UNDEFINED;
     }
@@ -323,30 +280,28 @@ uint16_t platform_get_locale_language()
 
 time_t platform_file_get_modified_time(const utf8* path)
 {
-    WIN32_FILE_ATTRIBUTE_DATA data;
-
-    wchar_t* wPath = utf8_to_widechar(path);
-    BOOL result = GetFileAttributesExW(wPath, GetFileExInfoStandard, &data);
-    free(wPath);
-
-    if (!result)
-        return 0;
-
-    FILETIME localFileTime;
-    result = FileTimeToLocalFileTime(&data.ftLastWriteTime, &localFileTime);
-    if (!result)
-        return 0;
-
-    ULARGE_INTEGER ull;
-    ull.LowPart = localFileTime.dwLowDateTime;
-    ull.HighPart = localFileTime.dwHighDateTime;
-    return ull.QuadPart / 10000000ULL - 11644473600ULL;
+    WIN32_FILE_ATTRIBUTE_DATA data{};
+    auto wPath = String::ToWideChar(path);
+    auto result = GetFileAttributesExW(wPath.c_str(), GetFileExInfoStandard, &data);
+    if (result != FALSE)
+    {
+        FILETIME localFileTime{};
+        result = FileTimeToLocalFileTime(&data.ftLastWriteTime, &localFileTime);
+        if (result != FALSE)
+        {
+            ULARGE_INTEGER ull{};
+            ull.LowPart = localFileTime.dwLowDateTime;
+            ull.HighPart = localFileTime.dwHighDateTime;
+            return ull.QuadPart / 10000000ULL - 11644473600ULL;
+        }
+    }
+    return 0;
 }
 
-uint8_t platform_get_locale_currency()
+CurrencyType platform_get_locale_currency()
 {
     CHAR currCode[4];
-    if (GetLocaleInfo(LOCALE_USER_DEFAULT, LOCALE_SINTLSYMBOL, (LPSTR)&currCode, sizeof(currCode)) == 0)
+    if (GetLocaleInfo(LOCALE_USER_DEFAULT, LOCALE_SINTLSYMBOL, reinterpret_cast<LPSTR>(&currCode), sizeof(currCode)) == 0)
     {
         return platform_get_currency_value(nullptr);
     }
@@ -354,49 +309,54 @@ uint8_t platform_get_locale_currency()
     return platform_get_currency_value(currCode);
 }
 
-uint8_t platform_get_locale_measurement_format()
+MeasurementFormat platform_get_locale_measurement_format()
 {
     UINT measurement_system;
     if (GetLocaleInfo(
-            LOCALE_USER_DEFAULT, LOCALE_IMEASURE | LOCALE_RETURN_NUMBER, (LPSTR)&measurement_system, sizeof(measurement_system))
+            LOCALE_USER_DEFAULT, LOCALE_IMEASURE | LOCALE_RETURN_NUMBER, reinterpret_cast<LPSTR>(&measurement_system),
+            sizeof(measurement_system))
         == 0)
     {
-        return MEASUREMENT_FORMAT_METRIC;
+        return MeasurementFormat::Metric;
     }
 
     switch (measurement_system)
     {
         case 1:
-            return MEASUREMENT_FORMAT_IMPERIAL;
+            return MeasurementFormat::Imperial;
         case 0:
         default:
-            return MEASUREMENT_FORMAT_METRIC;
+            return MeasurementFormat::Metric;
     }
 }
 
-uint8_t platform_get_locale_temperature_format()
+TemperatureUnit platform_get_locale_temperature_format()
 {
     UINT fahrenheit;
 
     // GetLocaleInfo will set fahrenheit to 1 if the locale on this computer
     // uses the United States measurement system or 0 otherwise.
-    if (GetLocaleInfo(LOCALE_USER_DEFAULT, LOCALE_IMEASURE | LOCALE_RETURN_NUMBER, (LPSTR)&fahrenheit, sizeof(fahrenheit)) == 0)
+    if (GetLocaleInfo(
+            LOCALE_USER_DEFAULT, LOCALE_IMEASURE | LOCALE_RETURN_NUMBER, reinterpret_cast<LPSTR>(&fahrenheit),
+            sizeof(fahrenheit))
+        == 0)
     {
         // Assume celsius by default if function call fails
-        return TEMPERATURE_FORMAT_C;
+        return TemperatureUnit::Celsius;
     }
 
     if (fahrenheit)
-        return TEMPERATURE_FORMAT_F;
+        return TemperatureUnit::Fahrenheit;
     else
-        return TEMPERATURE_FORMAT_C;
+        return TemperatureUnit::Celsius;
 }
 
 uint8_t platform_get_locale_date_format()
 {
+#    if _WIN32_WINNT >= 0x0600
     // Retrieve short date format, eg "MM/dd/yyyy"
     wchar_t dateFormat[20];
-    if (GetLocaleInfoEx(LOCALE_NAME_USER_DEFAULT, LOCALE_SSHORTDATE, dateFormat, sizeof(dateFormat)) == 0)
+    if (GetLocaleInfoEx(LOCALE_NAME_USER_DEFAULT, LOCALE_SSHORTDATE, dateFormat, static_cast<int>(std::size(dateFormat))) == 0)
     {
         return DATE_FORMAT_DAY_MONTH_YEAR;
     }
@@ -410,8 +370,8 @@ uint8_t platform_get_locale_date_format()
     wchar_t first[sizeof(dateFormat)];
     wchar_t second[sizeof(dateFormat)];
     if (swscanf_s(
-            dateFormat, L"%l[dyM]%*l[^dyM]%l[dyM]%*l[^dyM]%*l[dyM]", first, (uint32_t)std::size(first), second,
-            (uint32_t)std::size(second))
+            dateFormat, L"%l[dyM]%*l[^dyM]%l[dyM]%*l[^dyM]%*l[dyM]", first, static_cast<uint32_t>(std::size(first)), second,
+            static_cast<uint32_t>(std::size(second)))
         != 2)
     {
         return DATE_FORMAT_DAY_MONTH_YEAR;
@@ -437,6 +397,7 @@ uint8_t platform_get_locale_date_format()
             return DATE_FORMAT_YEAR_MONTH_DAY;
         }
     }
+#    endif
 
     // Default fallback
     return DATE_FORMAT_DAY_MONTH_YEAR;
@@ -451,9 +412,8 @@ bool platform_get_font_path(TTFFontDescriptor* font, utf8* buffer, size_t size)
     if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Fonts, 0, nullptr, &fontFolder)))
     {
         // Convert wchar to utf8, then copy the font folder path to the buffer.
-        utf8* outPathTemp = widechar_to_utf8(fontFolder);
-        safe_strcpy(buffer, outPathTemp, size);
-        free(outPathTemp);
+        auto outPathTemp = String::ToUtf8(fontFolder);
+        safe_strcpy(buffer, outPathTemp.c_str(), size);
 
         CoTaskMemFree(fontFolder);
 
@@ -474,24 +434,31 @@ bool platform_get_font_path(TTFFontDescriptor* font, utf8* buffer, size_t size)
 }
 #    endif // NO_TTF
 
-utf8* platform_get_absolute_path(const utf8* relativePath, const utf8* basePath)
+std::string platform_get_absolute_path(const utf8* relativePath, const utf8* basePath)
 {
-    utf8 path[MAX_PATH];
-    safe_strcpy(path, basePath, sizeof(path));
-    safe_strcat_path(path, relativePath, sizeof(path));
-
-    wchar_t* pathW = utf8_to_widechar(path);
-    wchar_t fullPathW[MAX_PATH];
-    DWORD fullPathLen = GetFullPathNameW(pathW, (DWORD)std::size(fullPathW), fullPathW, nullptr);
-
-    free(pathW);
-
-    if (fullPathLen == 0)
+    std::string result;
+    if (relativePath != nullptr)
     {
-        return nullptr;
-    }
+        std::string pathToResolve;
+        if (basePath == nullptr)
+        {
+            pathToResolve = std::string(relativePath);
+        }
+        else
+        {
+            pathToResolve = std::string(basePath) + std::string("\\") + relativePath;
+        }
 
-    return widechar_to_utf8(fullPathW);
+        auto pathToResolveW = String::ToWideChar(pathToResolve);
+        wchar_t fullPathW[MAX_PATH]{};
+        auto fullPathLen = GetFullPathNameW(
+            pathToResolveW.c_str(), static_cast<DWORD>(std::size(fullPathW)), fullPathW, nullptr);
+        if (fullPathLen != 0)
+        {
+            result = String::ToUtf8(fullPathW);
+        }
+    }
+    return result;
 }
 
 datetime64 platform_get_datetime_now_utc()
@@ -499,7 +466,8 @@ datetime64 platform_get_datetime_now_utc()
     // Get file time
     FILETIME fileTime;
     GetSystemTimeAsFileTime(&fileTime);
-    uint64_t fileTime64 = ((uint64_t)fileTime.dwHighDateTime << 32ULL) | ((uint64_t)fileTime.dwLowDateTime);
+    uint64_t fileTime64 = (static_cast<uint64_t>(fileTime.dwHighDateTime) << 32ULL)
+        | (static_cast<uint64_t>(fileTime.dwLowDateTime));
 
     // File time starts from: 1601-01-01T00:00:00Z
     // Convert to start from: 0001-01-01T00:00:00Z
@@ -507,18 +475,16 @@ datetime64 platform_get_datetime_now_utc()
     return utcNow;
 }
 
-utf8* platform_get_username()
+std::string platform_get_username()
 {
-    static wchar_t usernameW[UNLEN + 1];
+    std::string result;
+    wchar_t usernameW[UNLEN + 1]{};
     DWORD usernameLength = UNLEN + 1;
-    if (!GetUserNameW(usernameW, &usernameLength))
+    if (GetUserNameW(usernameW, &usernameLength))
     {
-        return nullptr;
+        result = String::ToUtf8(usernameW);
     }
-
-    static std::string username;
-    username = widechar_to_utf8(usernameW);
-    return username.data();
+    return result;
 }
 
 bool platform_process_is_elevated()
@@ -542,165 +508,15 @@ bool platform_process_is_elevated()
 }
 
 ///////////////////////////////////////////////////////////////////////////////
-// File association setup
+// URI protocol association setup
 ///////////////////////////////////////////////////////////////////////////////
 
 #    define SOFTWARE_CLASSES L"Software\\Classes"
 #    define MUI_CACHE L"Local Settings\\Software\\Microsoft\\Windows\\Shell\\MuiCache"
 
-static void get_progIdName(wchar_t* dst, const utf8* extension)
-{
-    utf8 progIdName[128];
-    safe_strcpy(progIdName, OPENRCT2_NAME, sizeof(progIdName));
-    safe_strcat(progIdName, extension, sizeof(progIdName));
-
-    wchar_t* progIdNameW = utf8_to_widechar(progIdName);
-    lstrcpyW(dst, progIdNameW);
-    free(progIdNameW);
-}
-
-static bool windows_setup_file_association(
-    const utf8* extension, const utf8* fileTypeText, const utf8* commandText, const utf8* commandArgs, const uint32_t iconIndex)
-{
-    wchar_t exePathW[MAX_PATH];
-    wchar_t dllPathW[MAX_PATH];
-
-    [[maybe_unused]] int32_t printResult;
-
-    GetModuleFileNameW(nullptr, exePathW, sizeof(exePathW));
-    GetModuleFileNameW(plaform_get_dll_module(), dllPathW, sizeof(dllPathW));
-
-    wchar_t* extensionW = utf8_to_widechar(extension);
-    wchar_t* fileTypeTextW = utf8_to_widechar(fileTypeText);
-    wchar_t* commandTextW = utf8_to_widechar(commandText);
-    wchar_t* commandArgsW = utf8_to_widechar(commandArgs);
-
-    wchar_t progIdNameW[128];
-    get_progIdName(progIdNameW, extension);
-
-    bool result = false;
-    HKEY hKey = nullptr;
-    HKEY hRootKey = nullptr;
-
-    // [HKEY_CURRENT_USER\Software\Classes]
-    if (RegOpenKeyW(HKEY_CURRENT_USER, SOFTWARE_CLASSES, &hRootKey) != ERROR_SUCCESS)
-    {
-        goto fail;
-    }
-
-    // [hRootKey\.ext]
-    if (RegSetValueW(hRootKey, extensionW, REG_SZ, progIdNameW, 0) != ERROR_SUCCESS)
-    {
-        goto fail;
-    }
-
-    if (RegCreateKeyW(hRootKey, progIdNameW, &hKey) != ERROR_SUCCESS)
-    {
-        goto fail;
-    }
-
-    // [hRootKey\OpenRCT2.ext]
-    if (RegSetValueW(hKey, nullptr, REG_SZ, fileTypeTextW, 0) != ERROR_SUCCESS)
-    {
-        goto fail;
-    }
-    // [hRootKey\OpenRCT2.ext\DefaultIcon]
-    wchar_t szIconW[MAX_PATH];
-    printResult = swprintf_s(szIconW, MAX_PATH, L"\"%s\",%d", dllPathW, iconIndex);
-    assert(printResult >= 0);
-    if (RegSetValueW(hKey, L"DefaultIcon", REG_SZ, szIconW, 0) != ERROR_SUCCESS)
-    {
-        goto fail;
-    }
-
-    // [hRootKey\OpenRCT2.sv6\shell]
-    if (RegSetValueW(hKey, L"shell", REG_SZ, L"open", 0) != ERROR_SUCCESS)
-    {
-        goto fail;
-    }
-
-    // [hRootKey\OpenRCT2.sv6\shell\open]
-    if (RegSetValueW(hKey, L"shell\\open", REG_SZ, commandTextW, 0) != ERROR_SUCCESS)
-    {
-        goto fail;
-    }
-
-    // [hRootKey\OpenRCT2.sv6\shell\open\command]
-    wchar_t szCommandW[MAX_PATH];
-    printResult = swprintf_s(szCommandW, MAX_PATH, L"\"%s\" %s", exePathW, commandArgsW);
-    assert(printResult >= 0);
-    if (RegSetValueW(hKey, L"shell\\open\\command", REG_SZ, szCommandW, 0) != ERROR_SUCCESS)
-    {
-        goto fail;
-    }
-
-    result = true;
-fail:
-    free(extensionW);
-    free(fileTypeTextW);
-    free(commandTextW);
-    free(commandArgsW);
-    RegCloseKey(hKey);
-    RegCloseKey(hRootKey);
-    return result;
-}
-
-static void windows_remove_file_association(const utf8* extension)
-{
-    // [HKEY_CURRENT_USER\Software\Classes]
-    HKEY hRootKey;
-    if (RegOpenKeyW(HKEY_CURRENT_USER, SOFTWARE_CLASSES, &hRootKey) == ERROR_SUCCESS)
-    {
-        // [hRootKey\.ext]
-        RegDeleteTreeA(hRootKey, extension);
-
-        // [hRootKey\OpenRCT2.ext]
-        wchar_t progIdName[128];
-        get_progIdName(progIdName, extension);
-        RegDeleteTreeW(hRootKey, progIdName);
-
-        RegCloseKey(hRootKey);
-    }
-}
-
-void platform_setup_file_associations()
-{
-    // Setup file extensions
-    windows_setup_file_association(".sc4", "RCT1 Scenario (.sc4)", "Play", "\"%1\"", 0);
-    windows_setup_file_association(".sc6", "RCT2 Scenario (.sc6)", "Play", "\"%1\"", 0);
-    windows_setup_file_association(".sv4", "RCT1 Saved Game (.sc4)", "Play", "\"%1\"", 0);
-    windows_setup_file_association(".sv6", "RCT2 Saved Game (.sv6)", "Play", "\"%1\"", 0);
-    windows_setup_file_association(".sv7", "RCT Modified Saved Game (.sv7)", "Play", "\"%1\"", 0);
-    windows_setup_file_association(".td4", "RCT1 Track Design (.td4)", "Install", "\"%1\"", 0);
-    windows_setup_file_association(".td6", "RCT2 Track Design (.td6)", "Install", "\"%1\"", 0);
-
-    // Refresh explorer
-    SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, nullptr, nullptr);
-}
-
-void platform_remove_file_associations()
-{
-    // Remove file extensions
-    windows_remove_file_association(".sc4");
-    windows_remove_file_association(".sc6");
-    windows_remove_file_association(".sv4");
-    windows_remove_file_association(".sv6");
-    windows_remove_file_association(".sv7");
-    windows_remove_file_association(".td4");
-    windows_remove_file_association(".td6");
-
-    // Refresh explorer
-    SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, nullptr, nullptr);
-}
-
-///////////////////////////////////////////////////////////////////////////////
-
-///////////////////////////////////////////////////////////////////////////////
-// URI protocol association setup
-///////////////////////////////////////////////////////////////////////////////
-
 bool platform_setup_uri_protocol()
 {
+#    if _WIN32_WINNT >= 0x0600
     log_verbose("Setting up URI protocol...");
 
     // [HKEY_CURRENT_USER\Software\Classes]
@@ -720,7 +536,7 @@ bool platform_setup_uri_protocol()
                     GetModuleFileNameW(nullptr, exePath, MAX_PATH);
 
                     wchar_t buffer[512];
-                    swprintf_s(buffer, sizeof(buffer), L"\"%s\" handle-uri \"%%1\"", exePath);
+                    swprintf_s(buffer, std::size(buffer), L"\"%s\" handle-uri \"%%1\"", exePath);
                     if (RegSetValueW(hClassKey, L"shell\\open\\command", REG_SZ, buffer, 0) == ERROR_SUCCESS)
                     {
                         // Not compulsory, but gives the application a nicer name
@@ -728,11 +544,11 @@ bool platform_setup_uri_protocol()
                         HKEY hMuiCacheKey;
                         if (RegCreateKeyW(hRootKey, MUI_CACHE, &hMuiCacheKey) == ERROR_SUCCESS)
                         {
-                            swprintf_s(buffer, sizeof(buffer), L"%s.FriendlyAppName", exePath);
+                            swprintf_s(buffer, std::size(buffer), L"%s.FriendlyAppName", exePath);
                             // mingw-w64 used to define RegSetKeyValueW's signature incorrectly
                             // You need at least mingw-w64 5.0 including this commit:
                             //   https://sourceforge.net/p/mingw-w64/mingw-w64/ci/da9341980a4b70be3563ac09b5927539e7da21f7/
-                            RegSetKeyValueW(hMuiCacheKey, nullptr, buffer, REG_SZ, L"OpenRCT2", sizeof(L"OpenRCT2") + 1);
+                            RegSetKeyValueW(hMuiCacheKey, nullptr, buffer, REG_SZ, L"OpenRCT2", sizeof(L"OpenRCT2"));
                         }
 
                         log_verbose("URI protocol setup successful");
@@ -742,6 +558,7 @@ bool platform_setup_uri_protocol()
             }
         }
     }
+#    endif
 
     log_verbose("URI protocol setup failed");
     return false;

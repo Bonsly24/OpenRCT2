@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (c) 2014-2019 OpenRCT2 developers
+ * Copyright (c) 2014-2020 OpenRCT2 developers
  *
  * For a complete list of all authors, please refer to contributors.md
  * Interested in contributing? Visit https://github.com/OpenRCT2/OpenRCT2
@@ -31,7 +31,7 @@ static uint16_t toolSizeSpriteIndices[] =
     SPR_LAND_TOOL_SIZE_3,
     SPR_LAND_TOOL_SIZE_4,
     SPR_LAND_TOOL_SIZE_5,
-    SPR_LAND_TOOL_SIZE_6,
+    SPR_G2_LAND_TOOL_SIZE_6,
     SPR_LAND_TOOL_SIZE_7,
 };
 // clang-format on
@@ -39,12 +39,12 @@ static uint16_t toolSizeSpriteIndices[] =
 uint16_t gLandToolSize;
 money32 gLandToolRaiseCost;
 money32 gLandToolLowerCost;
-uint8_t gLandToolTerrainSurface;
-uint8_t gLandToolTerrainEdge;
+ObjectEntryIndex gLandToolTerrainSurface;
+ObjectEntryIndex gLandToolTerrainEdge;
 money32 gWaterToolRaiseCost;
 money32 gWaterToolLowerCost;
 
-uint32_t land_tool_size_to_sprite_index(uint16_t size)
+uint32_t LandTool::SizeToSpriteIndex(uint16_t size)
 {
     if (size <= MAX_TOOL_SIZE_WITH_SPRITE)
     {
@@ -56,7 +56,7 @@ uint32_t land_tool_size_to_sprite_index(uint16_t size)
     }
 }
 
-void land_tool_show_surface_style_dropdown(rct_window* w, rct_widget* widget, uint8_t currentSurfaceType)
+void LandTool::ShowSurfaceStyleDropdown(rct_window* w, rct_widget* widget, ObjectEntryIndex currentSurfaceType)
 {
     auto& objManager = GetContext()->GetObjectManager();
 
@@ -64,14 +64,15 @@ void land_tool_show_surface_style_dropdown(rct_window* w, rct_widget* widget, ui
     auto itemIndex = 0;
     for (size_t i = 0; i < MAX_TERRAIN_SURFACE_OBJECTS; i++)
     {
-        const auto surfaceObj = static_cast<TerrainSurfaceObject*>(objManager.GetLoadedObject(OBJECT_TYPE_TERRAIN_SURFACE, i));
-        if (surfaceObj != nullptr)
+        const auto surfaceObj = static_cast<TerrainSurfaceObject*>(objManager.GetLoadedObject(ObjectType::TerrainSurface, i));
+        // NumImagesLoaded can be 1 for RCT1 surfaces if the user does not have RCT1 linked.
+        if (surfaceObj != nullptr && surfaceObj->NumImagesLoaded > 1)
         {
-            gDropdownItemsFormat[itemIndex] = DROPDOWN_FORMAT_LAND_PICKER;
+            gDropdownItemsFormat[itemIndex] = Dropdown::FormatLandPicker;
             gDropdownItemsArgs[itemIndex] = surfaceObj->IconImageId;
             if (surfaceObj->Colour != 255)
             {
-                gDropdownItemsArgs[itemIndex] |= surfaceObj->Colour << 19 | IMAGE_TYPE_REMAP;
+                gDropdownItemsArgs[itemIndex] |= SPRITE_ID_PALETTE_COLOUR_1(surfaceObj->Colour);
             }
             if (i == currentSurfaceType)
             {
@@ -80,16 +81,16 @@ void land_tool_show_surface_style_dropdown(rct_window* w, rct_widget* widget, ui
             itemIndex++;
         }
     }
-    auto surfaceCount = itemIndex;
+    uint32_t surfaceCount = itemIndex;
 
-    window_dropdown_show_image(
-        w->x + widget->left, w->y + widget->top, widget->bottom - widget->top, w->colours[2], 0, surfaceCount, 47, 36,
-        gAppropriateImageDropdownItemsPerRow[surfaceCount]);
+    WindowDropdownShowImage(
+        w->windowPos.x + widget->left, w->windowPos.y + widget->top, widget->height(), w->colours[2], 0, surfaceCount, 47, 36,
+        DropdownGetAppropriateImageDropdownItemsPerRow(surfaceCount));
 
     gDropdownDefaultIndex = defaultIndex;
 }
 
-void land_tool_show_edge_style_dropdown(rct_window* w, rct_widget* widget, uint8_t currentEdgeType)
+void LandTool::ShowEdgeStyleDropdown(rct_window* w, rct_widget* widget, ObjectEntryIndex currentEdgeType)
 {
     auto& objManager = GetContext()->GetObjectManager();
 
@@ -97,10 +98,10 @@ void land_tool_show_edge_style_dropdown(rct_window* w, rct_widget* widget, uint8
     auto itemIndex = 0;
     for (size_t i = 0; i < MAX_TERRAIN_EDGE_OBJECTS; i++)
     {
-        const auto edgeObj = static_cast<TerrainEdgeObject*>(objManager.GetLoadedObject(OBJECT_TYPE_TERRAIN_EDGE, i));
+        const auto edgeObj = static_cast<TerrainEdgeObject*>(objManager.GetLoadedObject(ObjectType::TerrainEdge, i));
         if (edgeObj != nullptr && edgeObj->NumImagesLoaded > 1)
         {
-            gDropdownItemsFormat[itemIndex] = DROPDOWN_FORMAT_LAND_PICKER;
+            gDropdownItemsFormat[itemIndex] = Dropdown::FormatLandPicker;
             gDropdownItemsArgs[itemIndex] = edgeObj->IconImageId;
             if (i == currentEdgeType)
             {
@@ -109,11 +110,12 @@ void land_tool_show_edge_style_dropdown(rct_window* w, rct_widget* widget, uint8
             itemIndex++;
         }
     }
-    auto edgeCount = itemIndex;
+    uint32_t edgeCount = itemIndex;
+    auto itemsPerRow = DropdownGetAppropriateImageDropdownItemsPerRow(edgeCount);
 
-    window_dropdown_show_image(
-        w->x + widget->left, w->y + widget->top, widget->bottom - widget->top, w->colours[2], 0, edgeCount, 47, 36,
-        gAppropriateImageDropdownItemsPerRow[edgeCount]);
+    WindowDropdownShowImage(
+        w->windowPos.x + widget->left, w->windowPos.y + widget->top, widget->height(), w->colours[2], 0, edgeCount, 47, 36,
+        itemsPerRow);
 
     gDropdownDefaultIndex = defaultIndex;
 }

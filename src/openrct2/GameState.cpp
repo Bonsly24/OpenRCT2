@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (c) 2014-2019 OpenRCT2 developers
+ * Copyright (c) 2014-2020 OpenRCT2 developers
  *
  * For a complete list of all authors, please refer to contributors.md
  * Interested in contributing? Visit https://github.com/OpenRCT2/OpenRCT2
@@ -12,16 +12,22 @@
 #include "Context.h"
 #include "Editor.h"
 #include "Game.h"
+#include "GameState.h"
+#include "GameStateSnapshots.h"
 #include "Input.h"
 #include "OpenRCT2.h"
 #include "ReplayManager.h"
+#include "actions/GameAction.h"
+#include "config/Config.h"
 #include "interface/Screenshot.h"
 #include "localisation/Date.h"
 #include "localisation/Localisation.h"
 #include "management/NewsItem.h"
 #include "network/network.h"
+#include "peep/Staff.h"
 #include "platform/Platform2.h"
 #include "scenario/Scenario.h"
+#include "scripting/ScriptEngine.h"
 #include "title/TitleScreen.h"
 #include "title/TitleSequencePlayer.h"
 #include "ui/UiContext.h"
@@ -30,10 +36,13 @@
 #include "world/MapAnimation.h"
 #include "world/Park.h"
 #include "world/Scenery.h"
+#include "world/Sprite.h"
 
 #include <algorithm>
+#include <chrono>
 
 using namespace OpenRCT2;
+using namespace OpenRCT2::Scripting;
 
 GameState::GameState()
 {
@@ -50,15 +59,13 @@ void GameState::InitAll(int32_t mapSize)
     map_init(mapSize);
     _park->Initialise();
     finance_init();
-    reset_park_entry();
     banner_init();
     ride_init_all();
     reset_sprite_list();
     staff_reset_modes();
     date_reset();
-    climate_reset(CLIMATE_COOL_AND_WET);
-    news_item_init_queue();
-    user_string_clear_all();
+    climate_reset(ClimateType::CoolAndWet);
+    News::InitQueue();
 
     gInMapInitCode = false;
 
@@ -105,25 +112,35 @@ void GameState::Update()
     // We use this variable to always advance ticks in normal speed.
     gCurrentRealTimeTicks += realtimeTicksElapsed;
 
-    // Determine how many times we need to update the game
-    if (gGameSpeed > 1)
-    {
-        // Update more often if game speed is above normal.
-        numUpdates = 1 << (gGameSpeed - 1);
-    }
+    network_update();
 
     if (network_get_mode() == NETWORK_MODE_CLIENT && network_get_status() == NETWORK_STATUS_CONNECTED
-        && network_get_authstatus() == NETWORK_AUTH_OK)
+        && network_get_authstatus() == NetworkAuth::Ok)
     {
-        if (network_get_server_tick() - gCurrentTicks >= 10)
+        numUpdates = std::clamp<uint32_t>(network_get_server_tick() - gCurrentTicks, 0, 10);
+    }
+    else
+    {
+        // Determine how many times we need to update the game
+        if (gGameSpeed > 1)
         {
-            // Make sure client doesn't fall behind the server too much
-            numUpdates += 10;
+            // Update more often if game speed is above normal.
+            numUpdates = 1 << (gGameSpeed - 1);
+        }
+    }
+
+    bool isPaused = game_is_paused();
+    if (network_get_mode() == NETWORK_MODE_SERVER && gConfigNetwork.pause_server_if_no_clients)
+    {
+        // If we are headless we always have 1 player (host), pause if no one else is around.
+        if (gOpenRCT2Headless && network_get_num_players() == 1)
+        {
+            isPaused |= true;
         }
     }
 
     bool didRunSingleFrame = false;
-    if (game_is_paused())
+    if (isPaused)
     {
         if (gDoSingleUpdate && network_get_mode() == NETWORK_MODE_NONE)
         {
@@ -139,9 +156,9 @@ void GameState::Update()
             map_animation_invalidate_all();
 
             // Special case because we set numUpdates to 0, otherwise in game_logic_update.
-            network_update();
-
             network_process_pending();
+
+            GameActions::ProcessQueue();
         }
     }
 
@@ -151,7 +168,7 @@ void GameState::Update()
         UpdateLogic();
         if (gGameSpeed == 1)
         {
-            if (input_get_state() == INPUT_STATE_RESET || input_get_state() == INPUT_STATE_NORMAL)
+            if (input_get_state() == InputState::Reset || input_get_state() == InputState::Normal)
             {
                 if (input_test_flag(INPUT_FLAG_VIEWPORT_SCROLLING))
                 {
@@ -174,24 +191,21 @@ void GameState::Update()
         // it was done due to inability to reproduce original frequency
         // and decision that the original one looks too fast
         if (gCurrentRealTimeTicks % 4 == 0)
-            gWindowMapFlashingFlags ^= (1 << 15);
+            gWindowMapFlashingFlags ^= MapFlashingFlags::SwitchColour;
 
         // Handle guest map flashing
-        gWindowMapFlashingFlags &= ~(1 << 1);
-        if (gWindowMapFlashingFlags & (1 << 0))
-            gWindowMapFlashingFlags |= (1 << 1);
-        gWindowMapFlashingFlags &= ~(1 << 0);
+        gWindowMapFlashingFlags &= ~MapFlashingFlags::FlashGuests;
+        if (gWindowMapFlashingFlags & MapFlashingFlags::GuestListOpen)
+            gWindowMapFlashingFlags |= MapFlashingFlags::FlashGuests;
+        gWindowMapFlashingFlags &= ~MapFlashingFlags::GuestListOpen;
 
         // Handle staff map flashing
-        gWindowMapFlashingFlags &= ~(1 << 3);
-        if (gWindowMapFlashingFlags & (1 << 2))
-            gWindowMapFlashingFlags |= (1 << 3);
-        gWindowMapFlashingFlags &= ~(1 << 2);
+        gWindowMapFlashingFlags &= ~MapFlashingFlags::FlashStaff;
+        if (gWindowMapFlashingFlags & MapFlashingFlags::StaffListOpen)
+            gWindowMapFlashingFlags |= MapFlashingFlags::FlashStaff;
+        gWindowMapFlashingFlags &= ~MapFlashingFlags::StaffListOpen;
 
         context_update_map_tooltip();
-
-        // Input
-        gUnk141F568 = gUnk13CA740;
 
         context_handle_input();
     }
@@ -210,90 +224,121 @@ void GameState::Update()
         pause_toggle();
     }
 
-    gGameCommandNestLevel = 0;
     gDoSingleUpdate = false;
     gInUpdateCode = false;
 }
 
-void GameState::UpdateLogic()
+void GameState::UpdateLogic(LogicTimings* timings)
 {
+    auto start_time = std::chrono::high_resolution_clock::now();
+
+    auto report_time = [timings, start_time](LogicTimePart part) {
+        if (timings != nullptr)
+        {
+            timings->TimingInfo[part][timings->CurrentIdx] = std::chrono::high_resolution_clock::now() - start_time;
+        }
+    };
+
     gScreenAge++;
     if (gScreenAge == 0)
         gScreenAge--;
 
-    network_update();
-
     GetContext()->GetReplayManager()->Update();
 
-    if (network_get_mode() == NETWORK_MODE_CLIENT && network_get_status() == NETWORK_STATUS_CONNECTED
-        && network_get_authstatus() == NETWORK_AUTH_OK)
-    {
-        // Can't be in sync with server, round trips won't work if we are at same level.
-        if (gCurrentTicks >= network_get_server_tick())
-        {
-            // Don't run past the server
-            return;
-        }
-    }
+    network_update();
+    report_time(LogicTimePart::NetworkUpdate);
 
     if (network_get_mode() == NETWORK_MODE_SERVER)
     {
+        if (network_gamestate_snapshots_enabled())
+        {
+            CreateStateSnapshot();
+        }
+
         // Send current tick out.
         network_send_tick();
     }
     else if (network_get_mode() == NETWORK_MODE_CLIENT)
     {
+        // Don't run past the server, this condition can happen during map changes.
+        if (network_get_server_tick() == gCurrentTicks)
+        {
+            return;
+        }
+
         // Check desync.
-        network_check_desynchronization();
+        bool desynced = network_check_desynchronisation();
+        if (desynced)
+        {
+            // If desync debugging is enabled and we are still connected request the specific game state from server.
+            if (network_gamestate_snapshots_enabled() && network_get_status() == NETWORK_STATUS_CONNECTED)
+            {
+                // Create snapshot from this tick so we can compare it later
+                // as we won't pause the game on this event.
+                CreateStateSnapshot();
+
+                network_request_gamestate_snapshot();
+            }
+        }
     }
 
+#ifdef ENABLE_SCRIPTING
+    // Stash the current day number before updating the date so that we
+    // know if the day number changes on this tick.
+    auto day = _date.GetDay();
+#endif
+
     date_update();
-    _date = Date(gDateMonthTicks, gDateMonthTicks);
+    _date = Date(static_cast<uint32_t>(gDateMonthsElapsed), gDateMonthTicks);
+    report_time(LogicTimePart::Date);
 
     scenario_update();
+    report_time(LogicTimePart::Scenario);
     climate_update();
+    report_time(LogicTimePart::Climate);
     map_update_tiles();
+    report_time(LogicTimePart::MapTiles);
     // Temporarily remove provisional paths to prevent peep from interacting with them
     map_remove_provisional_elements();
+    report_time(LogicTimePart::MapStashProvisionalElements);
     map_update_path_wide_flags();
+    report_time(LogicTimePart::MapPathWideFlags);
     peep_update_all();
+    report_time(LogicTimePart::Peep);
     map_restore_provisional_elements();
+    report_time(LogicTimePart::MapRestoreProvisionalElements);
     vehicle_update_all();
+    report_time(LogicTimePart::Vehicle);
     sprite_misc_update_all();
+    report_time(LogicTimePart::Misc);
     Ride::UpdateAll();
+    report_time(LogicTimePart::Ride);
 
     if (!(gScreenFlags & SCREEN_FLAGS_EDITOR))
     {
         _park->Update(_date);
     }
+    report_time(LogicTimePart::Park);
 
     research_update();
+    report_time(LogicTimePart::Research);
     ride_ratings_update_all();
+    report_time(LogicTimePart::RideRatings);
     ride_measurements_update();
-    news_item_update_current();
+    report_time(LogicTimePart::RideMeasurments);
+    News::UpdateCurrentItem();
+    report_time(LogicTimePart::News);
 
     map_animation_invalidate_all();
+    report_time(LogicTimePart::MapAnimation);
     vehicle_sounds_update();
     peep_update_crowd_noise();
     climate_update_sound();
+    report_time(LogicTimePart::Sounds);
     editor_open_windows_for_current_step();
 
     // Update windows
     // window_dispatch_update_all();
-
-    if (gErrorType != ERROR_TYPE_NONE)
-    {
-        rct_string_id title_text = STR_UNABLE_TO_LOAD_FILE;
-        rct_string_id body_text = gErrorStringId;
-        if (gErrorType == ERROR_TYPE_GENERIC)
-        {
-            title_text = gErrorStringId;
-            body_text = 0xFFFF;
-        }
-        gErrorType = ERROR_TYPE_NONE;
-
-        context_show_error(title_text, body_text);
-    }
 
     // Start autosave timer after update
     if (gLastAutoSaveUpdate == AUTOSAVE_PAUSE)
@@ -301,13 +346,39 @@ void GameState::UpdateLogic()
         gLastAutoSaveUpdate = Platform::GetTicks();
     }
 
-    // Separated out processing commands in network_update which could call scenario_rand where gInUpdateCode is false.
-    // All commands that are received are first queued and then executed where gInUpdateCode is set to true.
-    network_process_pending();
+    GameActions::ProcessQueue();
+    report_time(LogicTimePart::GameActions);
 
+    network_process_pending();
     network_flush();
+    report_time(LogicTimePart::NetworkFlush);
 
     gCurrentTicks++;
     gScenarioTicks++;
     gSavedAge++;
+
+#ifdef ENABLE_SCRIPTING
+    auto& hookEngine = GetContext()->GetScriptEngine().GetHookEngine();
+    hookEngine.Call(HOOK_TYPE::INTERVAL_TICK, true);
+
+    if (day != _date.GetDay())
+    {
+        hookEngine.Call(HOOK_TYPE::INTERVAL_DAY, true);
+    }
+    report_time(LogicTimePart::Scripts);
+#endif
+
+    if (timings != nullptr)
+    {
+        timings->CurrentIdx = (timings->CurrentIdx + 1) % LOGIC_UPDATE_MEASUREMENTS_COUNT;
+    }
+}
+
+void GameState::CreateStateSnapshot()
+{
+    IGameStateSnapshots* snapshots = GetContext()->GetGameStateSnapshots();
+
+    auto& snapshot = snapshots->CreateSnapshot();
+    snapshots->Capture(snapshot);
+    snapshots->LinkSnapshot(snapshot, gCurrentTicks, scenario_rand_state().s0);
 }

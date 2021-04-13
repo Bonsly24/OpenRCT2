@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (c) 2014-2019 OpenRCT2 developers
+ * Copyright (c) 2014-2020 OpenRCT2 developers
  *
  * For a complete list of all authors, please refer to contributors.md
  * Interested in contributing? Visit https://github.com/OpenRCT2/OpenRCT2
@@ -14,6 +14,7 @@
 #include "../config/Config.h"
 #include "../interface/Window.h"
 #include "../localisation/Localisation.h"
+#include "../peep/Peep.h"
 #include "../ride/Ride.h"
 #include "../ride/RideData.h"
 #include "../ride/ShopItem.h"
@@ -57,7 +58,7 @@ uint16_t marketing_get_campaign_guest_generation_probability(int32_t campaignTyp
         case ADVERTISING_CAMPAIGN_RIDE_FREE:
         {
             auto ride = get_ride(campaign->RideId);
-            if (ride == nullptr || ride->price < MONEY(0, 30))
+            if (ride == nullptr || ride->price[0] < MONEY(0, 30))
                 probability /= 8;
             break;
         }
@@ -70,19 +71,22 @@ static void marketing_raise_finished_notification(const MarketingCampaign& campa
 {
     if (gConfigNotifications.park_marketing_campaign_finished)
     {
+        Formatter ft;
         // This sets the string parameters for the marketing types that have an argument.
         if (campaign.Type == ADVERTISING_CAMPAIGN_RIDE_FREE || campaign.Type == ADVERTISING_CAMPAIGN_RIDE)
         {
-            Ride* ride = get_ride(campaign.RideId);
-            set_format_arg(0, rct_string_id, ride->name);
-            set_format_arg(2, uint32_t, ride->name_arguments);
+            auto ride = get_ride(campaign.RideId);
+            if (ride != nullptr)
+            {
+                ride->FormatNameTo(ft);
+            }
         }
         else if (campaign.Type == ADVERTISING_CAMPAIGN_FOOD_OR_DRINK_FREE)
         {
-            set_format_arg(0, rct_string_id, ShopItems[campaign.ShopItemType].Naming.Plural);
+            ft.Add<rct_string_id>(GetShopItemDescriptor(campaign.ShopItemType).Naming.Plural);
         }
 
-        news_item_add_to_queue(NEWS_ITEM_MONEY, MarketingCampaignNames[campaign.Type][2], 0);
+        News::AddItemToQueue(News::ItemType::Money, MarketingCampaignNames[campaign.Type][2], 0, ft);
     }
 }
 
@@ -132,40 +136,36 @@ void marketing_set_guest_campaign(Peep* peep, int32_t campaignType)
     switch (campaign->Type)
     {
         case ADVERTISING_CAMPAIGN_PARK_ENTRY_FREE:
-            peep->item_standard_flags |= PEEP_ITEM_VOUCHER;
-            peep->voucher_type = VOUCHER_TYPE_PARK_ENTRY_FREE;
+            peep->GiveItem(ShopItem::Voucher);
+            peep->VoucherType = VOUCHER_TYPE_PARK_ENTRY_FREE;
             break;
         case ADVERTISING_CAMPAIGN_RIDE_FREE:
-            peep->item_standard_flags |= PEEP_ITEM_VOUCHER;
-            peep->voucher_type = VOUCHER_TYPE_RIDE_FREE;
-            peep->voucher_arguments = campaign->RideId;
-            peep->guest_heading_to_ride_id = campaign->RideId;
-            peep->peep_is_lost_countdown = 240;
+            peep->GiveItem(ShopItem::Voucher);
+            peep->VoucherType = VOUCHER_TYPE_RIDE_FREE;
+            peep->VoucherRideId = campaign->RideId;
+            peep->GuestHeadingToRideId = campaign->RideId;
+            peep->GuestIsLostCountdown = 240;
             break;
         case ADVERTISING_CAMPAIGN_PARK_ENTRY_HALF_PRICE:
-            peep->item_standard_flags |= PEEP_ITEM_VOUCHER;
-            peep->voucher_type = VOUCHER_TYPE_PARK_ENTRY_HALF_PRICE;
+            peep->GiveItem(ShopItem::Voucher);
+            peep->VoucherType = VOUCHER_TYPE_PARK_ENTRY_HALF_PRICE;
             break;
         case ADVERTISING_CAMPAIGN_FOOD_OR_DRINK_FREE:
-            peep->item_standard_flags |= PEEP_ITEM_VOUCHER;
-            peep->voucher_type = VOUCHER_TYPE_FOOD_OR_DRINK_FREE;
-            peep->voucher_arguments = campaign->ShopItemType;
+            peep->GiveItem(ShopItem::Voucher);
+            peep->VoucherType = VOUCHER_TYPE_FOOD_OR_DRINK_FREE;
+            peep->VoucherShopItem = campaign->ShopItemType;
             break;
         case ADVERTISING_CAMPAIGN_PARK:
             break;
         case ADVERTISING_CAMPAIGN_RIDE:
-            peep->guest_heading_to_ride_id = campaign->RideId;
-            peep->peep_is_lost_countdown = 240;
+            peep->GuestHeadingToRideId = campaign->RideId;
+            peep->GuestIsLostCountdown = 240;
             break;
     }
 }
 
 bool marketing_is_campaign_type_applicable(int32_t campaignType)
 {
-    int32_t i;
-    Ride* ride;
-    rct_ride_entry* rideEntry;
-
     switch (campaignType)
     {
         case ADVERTISING_CAMPAIGN_PARK_ENTRY_FREE:
@@ -181,9 +181,9 @@ bool marketing_is_campaign_type_applicable(int32_t campaignType)
             // fall-through
         case ADVERTISING_CAMPAIGN_RIDE:
             // Check if any rides exist
-            FOR_ALL_RIDES (i, ride)
+            for (auto& ride : GetRideManager())
             {
-                if (gRideClassifications[ride->type] == RIDE_CLASS_RIDE)
+                if (ride.IsRide())
                 {
                     return true;
                 }
@@ -192,17 +192,18 @@ bool marketing_is_campaign_type_applicable(int32_t campaignType)
 
         case ADVERTISING_CAMPAIGN_FOOD_OR_DRINK_FREE:
             // Check if any food or drink stalls exist
-            FOR_ALL_RIDES (i, ride)
+            for (auto& ride : GetRideManager())
             {
-                rideEntry = get_ride_entry(ride->subtype);
-                if (rideEntry == nullptr)
+                auto rideEntry = ride.GetRideEntry();
+                if (rideEntry != nullptr)
                 {
-                    continue;
-                }
-                if (shop_item_is_food_or_drink(rideEntry->shop_item)
-                    || shop_item_is_food_or_drink(rideEntry->shop_item_secondary))
-                {
-                    return true;
+                    for (auto& item : rideEntry->shop_item)
+                    {
+                        if (GetShopItemDescriptor(item).IsFoodOrDrink())
+                        {
+                            return true;
+                        }
+                    }
                 }
             }
             return false;
@@ -236,4 +237,19 @@ void marketing_new_campaign(const MarketingCampaign& campaign)
     {
         gMarketingCampaigns.push_back(campaign);
     }
+}
+
+void MarketingCancelCampaignsForRide(const ride_id_t rideId)
+{
+    auto isCampaignForRideFn = [&rideId](MarketingCampaign& campaign) {
+        if (campaign.Type == ADVERTISING_CAMPAIGN_RIDE_FREE || campaign.Type == ADVERTISING_CAMPAIGN_RIDE)
+        {
+            return campaign.RideId == rideId;
+        }
+        return false;
+    };
+
+    auto& v = gMarketingCampaigns;
+    auto removedIt = std::remove_if(v.begin(), v.end(), isCampaignForRideFn);
+    v.erase(removedIt, v.end());
 }

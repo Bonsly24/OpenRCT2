@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (c) 2014-2019 OpenRCT2 developers
+ * Copyright (c) 2014-2020 OpenRCT2 developers
  *
  * For a complete list of all authors, please refer to contributors.md
  * Interested in contributing? Visit https://github.com/OpenRCT2/OpenRCT2
@@ -16,8 +16,14 @@
 #include <openrct2/audio/audio.h>
 #include <openrct2/config/Config.h>
 #include <openrct2/localisation/Localisation.h>
+#include <openrct2/network/network.h>
 #include <openrct2/scenario/Scenario.h>
 #include <openrct2/windows/Intent.h>
+
+static constexpr const int32_t WH_SAVE = 54;
+static constexpr const int32_t WW_SAVE = 260;
+static constexpr const int32_t WH_QUIT = 38;
+static constexpr const int32_t WW_QUIT = 177;
 
 // clang-format off
 enum WINDOW_SAVE_PROMPT_WIDGET_IDX {
@@ -31,13 +37,11 @@ enum WINDOW_SAVE_PROMPT_WIDGET_IDX {
 };
 
 static rct_widget window_save_prompt_widgets[] = {
-    { WWT_FRAME,            0,  0,      259,    0,  53, STR_NONE,                   STR_NONE },                 // panel / background
-    { WWT_CAPTION,          0,  1,      258,    1,  14, 0,                          STR_WINDOW_TITLE_TIP },     // title bar
-    { WWT_CLOSEBOX,         0,  247,    257,    2,  13, STR_CLOSE_X_WHITE,          STR_CLOSE_WINDOW_TIP },     // close x button
-    { WWT_LABEL_CENTRED,    0,  2,      257,    19, 30, 0,                          STR_NONE },                 // question/label
-    { WWT_BUTTON,           0,  8,      85,     35, 48, STR_SAVE_PROMPT_SAVE,       STR_NONE },     // save
-    { WWT_BUTTON,           0,  91,     168,    35, 48, STR_SAVE_PROMPT_DONT_SAVE,  STR_NONE },     // don't save
-    { WWT_BUTTON,           0,  174,    251,    35, 48, STR_SAVE_PROMPT_CANCEL,     STR_NONE },     // cancel
+    WINDOW_SHIM_WHITE(STR_NONE, WW_SAVE, WH_SAVE),
+    MakeWidget({  2, 19}, {256, 12}, WindowWidgetType::LabelCentred, WindowColour::Primary, STR_EMPTY                ), // question/label
+    MakeWidget({  8, 35}, { 78, 14}, WindowWidgetType::Button,        WindowColour::Primary, STR_SAVE_PROMPT_SAVE     ), // save
+    MakeWidget({ 91, 35}, { 78, 14}, WindowWidgetType::Button,        WindowColour::Primary, STR_SAVE_PROMPT_DONT_SAVE), // don't save
+    MakeWidget({174, 35}, { 78, 14}, WindowWidgetType::Button,        WindowColour::Primary, STR_SAVE_PROMPT_CANCEL   ), // cancel
     { WIDGETS_END },
 };
 
@@ -50,11 +54,9 @@ enum WINDOW_QUIT_PROMPT_WIDGET_IDX {
 };
 
 static rct_widget window_quit_prompt_widgets[] = {
-    { WWT_FRAME,            0,  0,      176,    0,  37, STR_NONE,                   STR_NONE },                 // panel / background
-    { WWT_CAPTION,          0,  1,      175,    1,  14, STR_QUIT_GAME_PROMPT_TITLE, STR_WINDOW_TITLE_TIP },     // title bar
-    { WWT_CLOSEBOX,         0,  164,    174,    2,  13, STR_CLOSE_X_WHITE,          STR_CLOSE_WINDOW_TIP },     // close x button
-    { WWT_BUTTON,           0,  8,      85,     19, 32, STR_OK,                     STR_NONE },     // ok
-    { WWT_BUTTON,           0,  91,     168,    19, 32, STR_CANCEL,                 STR_NONE },     // cancel
+    WINDOW_SHIM_WHITE(STR_QUIT_GAME_PROMPT_TITLE, WW_QUIT, WH_QUIT),
+    MakeWidget({ 8, 19}, {78, 14}, WindowWidgetType::Button, WindowColour::Primary, STR_OK    ), // ok
+    MakeWidget({91, 19}, {78, 14}, WindowWidgetType::Button, WindowColour::Primary, STR_CANCEL), // cancel
     { WIDGETS_END },
 };
 
@@ -70,36 +72,12 @@ static void window_save_prompt_mouseup(rct_window *w, rct_widgetindex widgetInde
 static void window_save_prompt_paint(rct_window *w, rct_drawpixelinfo *dpi);
 static void window_save_prompt_callback(int32_t result, const utf8 * path);
 
-static rct_window_event_list window_save_prompt_events = {
-    window_save_prompt_close,
-    window_save_prompt_mouseup,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    window_save_prompt_paint,
-    nullptr
-};
+static rct_window_event_list window_save_prompt_events([](auto& events)
+{
+    events.close = &window_save_prompt_close;
+    events.mouse_up = &window_save_prompt_mouseup;
+    events.paint = &window_save_prompt_paint;
+});
 // clang-format on
 
 /**
@@ -111,13 +89,13 @@ rct_window* window_save_prompt_open()
     int32_t width, height;
     rct_string_id stringId;
     rct_window* window;
-    uint8_t prompt_mode;
+    PromptMode prompt_mode;
     rct_widget* widgets;
     uint64_t enabled_widgets;
 
     prompt_mode = gSavePromptMode;
-    if (prompt_mode == PM_QUIT)
-        prompt_mode = PM_SAVE_BEFORE_QUIT;
+    if (prompt_mode == PromptMode::Quit)
+        prompt_mode = PromptMode::SaveBeforeQuit;
 
     // do not show save prompt if we're in the title demo and click on load game
     if (gScreenFlags & SCREEN_FLAGS_TITLE_DEMO)
@@ -134,7 +112,7 @@ rct_window* window_save_prompt_open()
          * and game_load_or_quit() are not called by the original binary anymore.
          */
 
-        if (gScreenAge < 3840)
+        if (gScreenAge < 3840 && network_get_mode() == NETWORK_MODE_NONE)
         {
             game_load_or_quit_no_save_prompt();
             return nullptr;
@@ -152,41 +130,44 @@ rct_window* window_save_prompt_open()
     {
         widgets = window_quit_prompt_widgets;
         enabled_widgets = (1 << WQIDX_CLOSE) | (1 << WQIDX_OK) | (1 << WQIDX_CANCEL);
-        width = 177;
-        height = 38;
+        width = WW_QUIT;
+        height = WH_QUIT;
     }
     else
     {
         widgets = window_save_prompt_widgets;
         enabled_widgets = (1 << WIDX_CLOSE) | (1 << WIDX_SAVE) | (1 << WIDX_DONT_SAVE) | (1 << WIDX_CANCEL);
-        width = 260;
-        height = 54;
+        width = WW_SAVE;
+        height = WH_SAVE;
     }
 
-    if (prompt_mode >= std::size(window_save_prompt_labels))
+    if (EnumValue(prompt_mode) >= std::size(window_save_prompt_labels))
     {
         log_warning("Invalid save prompt mode %u", prompt_mode);
         return nullptr;
     }
-    window = window_create_centred(
-        width, height, &window_save_prompt_events, WC_SAVE_PROMPT, WF_TRANSPARENT | WF_STICK_TO_FRONT);
+    window = WindowCreateCentred(width, height, &window_save_prompt_events, WC_SAVE_PROMPT, WF_TRANSPARENT | WF_STICK_TO_FRONT);
 
     window->widgets = widgets;
     window->enabled_widgets = enabled_widgets;
-    window_init_scroll_widgets(window);
+    WindowInitScrollWidgets(window);
 
-    // Pause the game
-    gGamePaused |= GAME_PAUSED_MODAL;
-    audio_stop_all_music_and_sounds();
+    // Pause the game if not network play.
+    if (network_get_mode() == NETWORK_MODE_NONE)
+    {
+        gGamePaused |= GAME_PAUSED_MODAL;
+        OpenRCT2::Audio::StopAll();
+    }
+
     window_invalidate_by_class(WC_TOP_TOOLBAR);
 
-    stringId = window_save_prompt_labels[prompt_mode][0];
+    stringId = window_save_prompt_labels[EnumValue(prompt_mode)][0];
     if (stringId == STR_LOAD_GAME_PROMPT_TITLE && gScreenFlags & SCREEN_FLAGS_SCENARIO_EDITOR)
         stringId = STR_LOAD_LANDSCAPE_PROMPT_TITLE;
     if (stringId == STR_QUIT_GAME_PROMPT_TITLE && gScreenFlags & SCREEN_FLAGS_SCENARIO_EDITOR)
         stringId = STR_QUIT_SCENARIO_EDITOR;
     window_save_prompt_widgets[WIDX_TITLE].text = stringId;
-    window_save_prompt_widgets[WIDX_LABEL].text = window_save_prompt_labels[prompt_mode][1];
+    window_save_prompt_widgets[WIDX_LABEL].text = window_save_prompt_labels[EnumValue(prompt_mode)][1];
 
     return window;
 }
@@ -198,8 +179,12 @@ rct_window* window_save_prompt_open()
 static void window_save_prompt_close(rct_window* w)
 {
     // Unpause the game
-    gGamePaused &= ~GAME_PAUSED_MODAL;
-    audio_unpause_sounds();
+    if (network_get_mode() == NETWORK_MODE_NONE)
+    {
+        gGamePaused &= ~GAME_PAUSED_MODAL;
+        OpenRCT2::Audio::Resume();
+    }
+
     window_invalidate_by_class(WC_TOP_TOOLBAR);
 }
 
@@ -239,10 +224,10 @@ static void window_save_prompt_mouseup(rct_window* w, rct_widgetindex widgetInde
                 }
                 else
                 {
-                    intent = (Intent*)create_save_game_as_intent();
+                    intent = static_cast<Intent*>(create_save_game_as_intent());
                 }
                 window_close(w);
-                intent->putExtra(INTENT_EXTRA_CALLBACK, (void*)window_save_prompt_callback);
+                intent->putExtra(INTENT_EXTRA_CALLBACK, reinterpret_cast<void*>(window_save_prompt_callback));
                 context_open_intent(intent);
                 delete intent;
                 break;
@@ -260,7 +245,7 @@ static void window_save_prompt_mouseup(rct_window* w, rct_widgetindex widgetInde
 
 static void window_save_prompt_paint(rct_window* w, rct_drawpixelinfo* dpi)
 {
-    window_draw_widgets(w, dpi);
+    WindowDrawWidgets(w, dpi);
 }
 
 static void window_save_prompt_callback(int32_t result, const utf8* path)

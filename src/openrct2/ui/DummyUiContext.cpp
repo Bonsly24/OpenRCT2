@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (c) 2014-2019 OpenRCT2 developers
+ * Copyright (c) 2014-2020 OpenRCT2 developers
  *
  * For a complete list of all authors, please refer to contributors.md
  * Interested in contributing? Visit https://github.com/OpenRCT2/OpenRCT2
@@ -7,6 +7,7 @@
  * OpenRCT2 is licensed under the GNU General Public License version 3.
  *****************************************************************************/
 
+#include "../config/Config.h"
 #include "../drawing/X8DrawingEngine.h"
 #include "UiContext.h"
 #include "WindowManager.h"
@@ -24,6 +25,9 @@ namespace OpenRCT2::Ui
         IWindowManager* const _windowManager = CreateDummyWindowManager();
 
     public:
+        void Initialise() override
+        {
+        }
         void Update() override
         {
         }
@@ -52,9 +56,9 @@ namespace OpenRCT2::Ui
         {
             return 0;
         }
-        int32_t GetScaleQuality() override
+        ScaleQuality GetScaleQuality() override
         {
-            return 0;
+            return ScaleQuality::NearestNeighbour;
         }
         void SetFullscreenMode(FULLSCREEN_MODE /*mode*/) override
         {
@@ -86,7 +90,20 @@ namespace OpenRCT2::Ui
         void ShowMessageBox(const std::string& /*message*/) override
         {
         }
+        bool HasMenuSupport() override
+        {
+            return false;
+        }
+
+        int32_t ShowMenuDialog(
+            const std::vector<std::string>& options, const std::string& title, const std::string& text) override
+        {
+            return static_cast<int32_t>(options.size());
+        }
         void OpenFolder(const std::string& /*path*/) override
+        {
+        }
+        void OpenURL(const std::string& /*url*/) override
         {
         }
         std::string ShowFileDialog(const FileDialogDesc& /*desc*/) override
@@ -103,11 +120,11 @@ namespace OpenRCT2::Ui
         {
             return nullptr;
         }
-        CURSOR_ID GetCursor() override
+        CursorID GetCursor() override
         {
-            return CURSOR_ARROW;
+            return CursorID::Arrow;
         }
-        void SetCursor(CURSOR_ID /*cursor*/) override
+        void SetCursor(CursorID /*cursor*/) override
         {
         }
         void SetCursorScale(uint8_t /*scale*/) override
@@ -116,10 +133,11 @@ namespace OpenRCT2::Ui
         void SetCursorVisible(bool /*value*/) override
         {
         }
-        void GetCursorPosition(int32_t* /*x*/, int32_t* /*y*/) override
+        ScreenCoordsXY GetCursorPosition() override
         {
+            return {};
         }
-        void SetCursorPosition(int32_t /*x*/, int32_t /*y*/) override
+        void SetCursorPosition(const ScreenCoordsXY& /*cursorPosition*/) override
         {
         }
         void SetCursorTrap(bool /*value*/) override
@@ -140,7 +158,7 @@ namespace OpenRCT2::Ui
         class X8DrawingEngineFactory final : public IDrawingEngineFactory
         {
             std::unique_ptr<IDrawingEngine> Create(
-                [[maybe_unused]] DRAWING_ENGINE_TYPE type, const std::shared_ptr<IUiContext>& uiContext) override
+                [[maybe_unused]] DrawingEngine type, const std::shared_ptr<IUiContext>& uiContext) override
             {
                 return std::make_unique<X8DrawingEngine>(uiContext);
             }
@@ -151,7 +169,7 @@ namespace OpenRCT2::Ui
         {
             return std::make_shared<X8DrawingEngineFactory>();
         }
-        void DrawRainAnimation(IRainDrawer* rainDrawer, rct_drawpixelinfo* dpi, DrawRainFunc drawFunc) override
+        void DrawWeatherAnimation(IWeatherDrawer* weatherDrawer, rct_drawpixelinfo* dpi, DrawWeatherFunc drawFunc) override
         {
         }
 
@@ -189,6 +207,11 @@ namespace OpenRCT2::Ui
         ~DummyUiContext()
         {
             delete _windowManager;
+        }
+
+        bool HasFilePicker() const override
+        {
+            return false;
         }
     };
 

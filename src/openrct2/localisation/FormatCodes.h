@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (c) 2014-2019 OpenRCT2 developers
+ * Copyright (c) 2014-2020 OpenRCT2 developers
  *
  * For a complete list of all authors, please refer to contributors.md
  * Interested in contributing? Visit https://github.com/OpenRCT2/OpenRCT2
@@ -11,91 +11,77 @@
 
 #include "../common.h"
 
-uint32_t format_get_code(const char* token);
-const char* format_get_token(uint32_t code);
+#include <string_view>
 
-enum
+enum class FormatToken
 {
-    // Font format codes
+    Unknown,
+    Literal,
+    Escaped,
 
-    // The next byte specifies the X coordinate
-    FORMAT_MOVE_X = 1,
-    // The next byte specifies the palette
-    FORMAT_ADJUST_PALETTE,
+    Newline,
+    NewlineSmall,
 
-    FORMAT_3,
-    FORMAT_4,
+    // With parameters
+    Move,
+    InlineSprite,
 
-    // Moves to the next line
-    FORMAT_NEWLINE = 5,
-    // Moves less than NEWLINE
-    FORMAT_NEWLINE_SMALLER,
+    // With arguments
+    Comma32,
+    Int32,
+    Comma1dp16,
+    Comma2dp32,
+    Comma16,
+    UInt16,
+    Currency2dp,
+    Currency,
+    StringId,
+    String,
+    MonthYear,
+    Month,
+    Velocity,
+    DurationShort,
+    DurationLong,
+    Length,
+    Sprite,
+    Pop16,
+    Push16,
 
-    FORMAT_TINYFONT,
-    FORMAT_BIGFONT,
-    FORMAT_MEDIUMFONT,
-    FORMAT_SMALLFONT,
+    // Colours
+    ColourWindow1,
+    ColourWindow2,
+    ColourWindow3,
+    ColourBlack,
+    ColourGrey,
+    ColourWhite,
+    ColourRed,
+    ColourGreen,
+    ColourYellow,
+    ColourTopaz,
+    ColourCeladon,
+    ColourBabyBlue,
+    ColourPaleLavender,
+    ColourPaleGold,
+    ColourLightPink,
+    ColourPearlAqua,
+    ColourPaleSilver,
 
-    FORMAT_OUTLINE,
-    FORMAT_OUTLINE_OFF,
+    // Fonts
+    FontTiny,
+    FontSmall,
+    FontMedium,
 
-    // Changes the colour of the text to a predefined window colour.
-    FORMAT_WINDOW_COLOUR_1,
-    FORMAT_WINDOW_COLOUR_2,
-    FORMAT_WINDOW_COLOUR_3,
-
-    FORMAT_16,
-
-    // The next 2 bytes specify the X and Y coordinates
-    FORMAT_NEWLINE_X_Y = 17,
-
-    // The next 4 bytes specify the sprite
-    FORMAT_INLINE_SPRITE = 23,
-
-    // Argument format codes
-    FORMAT_ARGUMENT_CODE_START = 123, // 'z' == 122 or 0x7A
-    FORMAT_COMMA32 = 123,
-    FORMAT_INT32,
-    FORMAT_COMMA2DP32,
-    FORMAT_COMMA16,
-    FORMAT_UINT16,
-    FORMAT_CURRENCY2DP,
-    FORMAT_CURRENCY,
-    FORMAT_STRINGID,
-    FORMAT_STRINGID2,
-    FORMAT_STRING,
-    FORMAT_MONTHYEAR,
-    FORMAT_MONTH,
-    FORMAT_VELOCITY,
-    FORMAT_POP16,
-    FORMAT_PUSH16,
-    FORMAT_DURATION,
-    FORMAT_REALTIME,
-    FORMAT_LENGTH,
-    FORMAT_SPRITE,
-    FORMAT_ARGUMENT_CODE_END = FORMAT_SPRITE,
-
-    // Colour format codes
-    FORMAT_COLOUR_CODE_START = 142,
-    FORMAT_BLACK = 142,
-    FORMAT_GREY,
-    FORMAT_WHITE,
-    FORMAT_RED,
-    FORMAT_GREEN,
-    FORMAT_YELLOW,
-    FORMAT_TOPAZ,
-    FORMAT_CELADON,
-    FORMAT_BABYBLUE,
-    FORMAT_PALELAVENDER,
-    FORMAT_PALEGOLD,
-    FORMAT_LIGHTPINK,
-    FORMAT_PEARLAQUA,
-    FORMAT_PALESILVER,
-    FORMAT_COLOUR_CODE_END = FORMAT_PALESILVER,
-
-    // Format codes that need suitable Unicode allocations
-    FORMAT_COMMA1DP16 = 20004
+    OutlineEnable,
+    OutlineDisable,
 };
+
+std::string_view GetFormatTokenStringWithBraces(FormatToken token);
+FormatToken FormatTokenFromString(std::string_view token);
+std::string_view FormatTokenToString(FormatToken token, bool withBraces = false);
+bool FormatTokenTakesArgument(FormatToken token);
+bool FormatTokenIsColour(FormatToken token);
+size_t FormatTokenGetTextColourIndex(FormatToken token);
+FormatToken FormatTokenFromTextColour(size_t textColour);
 
 constexpr uint8_t CS_SPRITE_FONT_OFFSET = 32;
 
@@ -134,6 +120,7 @@ namespace CSChar
     constexpr char32_t c_acute = 0xDE;
     constexpr char32_t e_ogonek = 0xE6;
     constexpr char32_t n_acute = 0xF0;
+    constexpr char32_t o_circumflex = 0xF4;
     constexpr char32_t l_stroke = 0xF7;
     constexpr char32_t s_acute = 0xF8;
     constexpr char32_t z_acute = 0xFE;
@@ -144,6 +131,8 @@ namespace CSChar
 namespace UnicodeChar
 {
     // Latin alphabet
+    constexpr char32_t j = 0x6A;
+    constexpr char32_t l = 0x6C;
     constexpr char32_t ae_uc = 0xC6;
     constexpr char32_t o_stroke_uc = 0xD8;
     constexpr char32_t y_acute_uc = 0xDD;
@@ -156,6 +145,8 @@ namespace UnicodeChar
     constexpr char32_t a_ogonek = 0x105;
     constexpr char32_t c_acute_uc = 0x106;
     constexpr char32_t c_acute = 0x107;
+    constexpr char32_t c_circumflex_uc = 0x108;
+    constexpr char32_t c_circumflex = 0x109;
     constexpr char32_t c_caron_uc = 0x10C;
     constexpr char32_t c_caron = 0x10D;
     constexpr char32_t d_caron_uc = 0x10E;
@@ -164,28 +155,39 @@ namespace UnicodeChar
     constexpr char32_t e_ogonek = 0x119;
     constexpr char32_t e_caron_uc = 0x11A;
     constexpr char32_t e_caron = 0x11B;
+    constexpr char32_t g_circumflex_uc = 0x11C;
+    constexpr char32_t g_circumflex = 0x11D;
     constexpr char32_t g_breve_uc = 0x11E;
     constexpr char32_t g_breve = 0x11F;
+    constexpr char32_t h_circumflex_uc = 0x124;
+    constexpr char32_t h_circumflex = 0x125;
     constexpr char32_t i_with_dot_uc = 0x130;
     constexpr char32_t i_without_dot = 0x131;
+    constexpr char32_t j_circumflex_uc = 0x134;
+    constexpr char32_t j_circumflex = 0x135;
     constexpr char32_t l_stroke_uc = 0x141;
     constexpr char32_t l_stroke = 0x142;
     constexpr char32_t n_acute_uc = 0x143;
     constexpr char32_t n_acute = 0x144;
     constexpr char32_t n_caron_uc = 0x147;
     constexpr char32_t n_caron = 0x148;
+    constexpr char32_t o_macron = 0x14D;
     constexpr char32_t o_double_acute_uc = 0x150;
     constexpr char32_t o_double_acute = 0x151;
     constexpr char32_t r_caron_uc = 0x158;
     constexpr char32_t r_caron = 0x159;
     constexpr char32_t s_acute_uc = 0x15A;
     constexpr char32_t s_acute = 0x15B;
+    constexpr char32_t s_circumflex_uc = 0x15C;
+    constexpr char32_t s_circumflex = 0x15D;
     constexpr char32_t s_cedilla_uc = 0x15E;
     constexpr char32_t s_cedilla = 0x15F;
     constexpr char32_t s_caron_uc = 0x160;
     constexpr char32_t s_caron = 0x161;
     constexpr char32_t t_caron_uc = 0x164;
     constexpr char32_t t_caron = 0x165;
+    constexpr char32_t u_breve_uc = 0x16C;
+    constexpr char32_t u_breve = 0x16D;
     constexpr char32_t u_ring_uc = 0x16E;
     constexpr char32_t u_ring = 0x16F;
     constexpr char32_t u_double_acute_uc = 0x170;
@@ -278,6 +280,8 @@ namespace UnicodeChar
     constexpr char32_t leftguillemet = 0xAB;
     constexpr char32_t rightguillemet = 0xBB;
     constexpr char32_t interpunct = 0xB7;
+    constexpr char32_t multiplication_sign = 0xD7;
+    constexpr char32_t en_dash = 0x2013;
     constexpr char32_t single_quote_open = 0x2018;
     constexpr char32_t single_quote_end = 0x2019;
     constexpr char32_t single_german_quote_open = 0x201A;

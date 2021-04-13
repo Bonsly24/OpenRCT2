@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (c) 2014-2019 OpenRCT2 developers
+ * Copyright (c) 2014-2020 OpenRCT2 developers
  *
  * For a complete list of all authors, please refer to contributors.md
  * Interested in contributing? Visit https://github.com/OpenRCT2/OpenRCT2
@@ -7,7 +7,7 @@
  * OpenRCT2 is licensed under the GNU General Public License version 3.
  *****************************************************************************/
 
-#ifdef __MINGW32__
+#if defined(__MINGW32__) && !defined(WINVER) && !defined(_WIN32_WINNT)
 // 0x0600 == vista
 #    define WINVER 0x0600
 #    define _WIN32_WINNT 0x0600
@@ -24,10 +24,6 @@
 #endif
 
 #ifdef _WIN32
-#    ifndef NOMINMAX
-#        define NOMINMAX
-#    endif
-#    define WIN32_LEAN_AND_MEAN
 #    include <windows.h>
 #endif
 
@@ -38,7 +34,7 @@
 #include "../util/Util.h"
 #include "Memory.hpp"
 #include "String.hpp"
-#include "StringBuilder.hpp"
+#include "StringBuilder.h"
 
 namespace String
 {
@@ -69,10 +65,10 @@ namespace String
         return returnValue;
     }
 
-    std::string ToUtf8(const std::wstring_view& src)
+    std::string ToUtf8(std::wstring_view src)
     {
 #ifdef _WIN32
-        int srcLen = (int)src.size();
+        int srcLen = static_cast<int>(src.size());
         int sizeReq = WideCharToMultiByte(CODE_PAGE::CP_UTF8, 0, src.data(), srcLen, nullptr, 0, nullptr, nullptr);
         auto result = std::string(sizeReq, 0);
         WideCharToMultiByte(CODE_PAGE::CP_UTF8, 0, src.data(), srcLen, result.data(), sizeReq, nullptr, nullptr);
@@ -82,10 +78,10 @@ namespace String
 // UTF-32 is the default on most POSIX systems; Windows uses UTF-16.
 // Unfortunately, we'll have to help the compiler here.
 #    if U_SIZEOF_WCHAR_T == 4
-        icu::UnicodeString str = icu::UnicodeString::fromUTF32((const UChar32*)src.data(), src.length());
+        icu::UnicodeString str = icu::UnicodeString::fromUTF32(reinterpret_cast<const UChar32*>(src.data()), src.length());
 #    elif U_SIZEOF_WCHAR_T == 2
         std::wstring wstr = std::wstring(src);
-        icu::UnicodeString str = icu::UnicodeString((const wchar_t*)wstr.c_str());
+        icu::UnicodeString str = icu::UnicodeString(static_cast<const wchar_t*>(wstr.c_str()));
 #    else
 #        error Unsupported U_SIZEOF_WCHAR_T size
 #    endif
@@ -97,10 +93,10 @@ namespace String
 #endif
     }
 
-    std::wstring ToUtf16(const std::string_view& src)
+    std::wstring ToWideChar(std::string_view src)
     {
 #ifdef _WIN32
-        int srcLen = (int)src.size();
+        int srcLen = static_cast<int>(src.size());
         int sizeReq = MultiByteToWideChar(CODE_PAGE::CP_UTF8, 0, src.data(), srcLen, nullptr, 0);
         auto result = std::wstring(sizeReq, 0);
         MultiByteToWideChar(CODE_PAGE::CP_UTF8, 0, src.data(), srcLen, result.data(), sizeReq);
@@ -112,15 +108,15 @@ namespace String
 // UTF-32 is the default on most POSIX systems; Windows uses UTF-16.
 // Unfortunately, we'll have to help the compiler here.
 #    if U_SIZEOF_WCHAR_T == 4
-        size_t length = (size_t)str.length();
+        size_t length = static_cast<size_t>(str.length());
         std::wstring result(length, '\0');
 
         UErrorCode status = U_ZERO_ERROR;
-        str.toUTF32((UChar32*)&result[0], str.length(), status);
+        str.toUTF32(reinterpret_cast<UChar32*>(&result[0]), str.length(), status);
 
 #    elif U_SIZEOF_WCHAR_T == 2
         const char16_t* buffer = str.getBuffer();
-        std::wstring result = (wchar_t*)buffer;
+        std::wstring result = static_cast<wchar_t*>(buffer);
 
 #    else
 #        error Unsupported U_SIZEOF_WCHAR_T size
@@ -128,6 +124,23 @@ namespace String
 
         return result;
 #endif
+    }
+
+    std::string_view ToStringView(const char* ch, size_t maxLen)
+    {
+        size_t len{};
+        for (size_t i = 0; i < maxLen; i++)
+        {
+            if (ch[i] == '\0')
+            {
+                break;
+            }
+            else
+            {
+                len++;
+            }
+        }
+        return std::string_view(ch, len);
     }
 
     bool IsNullOrEmpty(const utf8* str)
@@ -158,9 +171,70 @@ namespace String
         }
     }
 
+    bool Equals(std::string_view a, std::string_view b, bool ignoreCase)
+    {
+        if (ignoreCase)
+        {
+            if (a.size() == b.size())
+            {
+                for (size_t i = 0; i < a.size(); i++)
+                {
+                    if (tolower(a[i]) != tolower(b[i]))
+                    {
+                        return false;
+                    }
+                }
+                return true;
+            }
+            else
+            {
+                return false;
+            }
+        }
+        else
+        {
+            return a == b;
+        }
+    }
+
     bool Equals(const std::string& a, const std::string& b, bool ignoreCase)
     {
-        return Equals(a.c_str(), b.c_str(), ignoreCase);
+        if (a.size() != b.size())
+            return false;
+
+        if (ignoreCase)
+        {
+            for (size_t i = 0; i < a.size(); i++)
+            {
+                auto ai = a[i];
+                auto bi = b[i];
+
+                // Only do case insensitive comparison on ASCII characters
+                if ((ai & 0x80) != 0 || (bi & 0x80) != 0)
+                {
+                    if (a[i] != b[i])
+                    {
+                        return false;
+                    }
+                }
+                else if (tolower(ai) != tolower(bi))
+                {
+                    return false;
+                }
+            }
+        }
+        else
+        {
+            for (size_t i = 0; i < a.size(); i++)
+            {
+                if (a[i] != b[i])
+                {
+                    return false;
+                }
+            }
+        }
+
+        return true;
     }
 
     bool Equals(const utf8* a, const utf8* b, bool ignoreCase)
@@ -180,43 +254,22 @@ namespace String
         }
     }
 
-    bool StartsWith(const utf8* str, const utf8* match, bool ignoreCase)
+    bool StartsWith(std::string_view str, std::string_view match, bool ignoreCase)
     {
-        if (ignoreCase)
+        if (str.size() >= match.size())
         {
-            while (*match != '\0')
-            {
-                if (*str == '\0' || tolower(*str++) != tolower(*match++))
-                {
-                    return false;
-                }
-            }
-            return true;
+            auto view = str.substr(0, match.size());
+            return Equals(view, match, ignoreCase);
         }
-        else
-        {
-            while (*match != '\0')
-            {
-                if (*str == '\0' || *str++ != *match++)
-                {
-                    return false;
-                }
-            }
-            return true;
-        }
+        return false;
     }
 
-    bool StartsWith(const std::string& str, const std::string& match, bool ignoreCase)
-    {
-        return StartsWith(str.c_str(), match.c_str(), ignoreCase);
-    }
-
-    bool EndsWith(const std::string_view& str, const std::string_view& match, bool ignoreCase)
+    bool EndsWith(std::string_view str, std::string_view match, bool ignoreCase)
     {
         if (str.size() >= match.size())
         {
             auto view = str.substr(str.size() - match.size());
-            return Equals(view.data(), match.data(), ignoreCase);
+            return Equals(view, match, ignoreCase);
         }
         return false;
     }
@@ -228,7 +281,7 @@ namespace String
         {
             if (*ch == match)
             {
-                return (size_t)(ch - str);
+                return static_cast<size_t>(ch - str);
             }
         }
         return SIZE_MAX;
@@ -336,7 +389,7 @@ namespace String
             return nullptr;
         }
 
-        size_t requiredSize = (size_t)len + 1;
+        size_t requiredSize = static_cast<size_t>(len) + 1;
         if (requiredSize > bufferSize)
         {
             // Try again with bigger buffer
@@ -421,7 +474,7 @@ namespace String
         return DiscardUse(ptr, String::Duplicate(replacement));
     }
 
-    std::vector<std::string> Split(const std::string& s, const std::string& delimiter)
+    std::vector<std::string> Split(std::string_view s, std::string_view delimiter)
     {
         if (delimiter.empty())
         {
@@ -436,16 +489,14 @@ namespace String
             do
             {
                 nextIndex = s.find(delimiter, index);
-                std::string value;
                 if (nextIndex == std::string::npos)
                 {
-                    value = s.substr(index);
+                    results.emplace_back(s.substr(index));
                 }
                 else
                 {
-                    value = s.substr(index, nextIndex - index);
+                    results.emplace_back(s.substr(index, nextIndex - index));
                 }
-                results.push_back(value);
                 index = nextIndex + delimiter.size();
             } while (nextIndex != SIZE_MAX);
         }
@@ -454,12 +505,13 @@ namespace String
 
     utf8* SkipBOM(utf8* buffer)
     {
-        return (utf8*)SkipBOM((const utf8*)buffer);
+        return const_cast<utf8*>(SkipBOM(static_cast<const utf8*>(buffer)));
     }
 
     const utf8* SkipBOM(const utf8* buffer)
     {
-        if ((uint8_t)buffer[0] == 0xEF && (uint8_t)buffer[1] == 0xBB && (uint8_t)buffer[2] == 0xBF)
+        if (static_cast<uint8_t>(buffer[0]) == 0xEF && static_cast<uint8_t>(buffer[1]) == 0xBB
+            && static_cast<uint8_t>(buffer[2]) == 0xBF)
         {
             return buffer + 3;
         }
@@ -473,7 +525,7 @@ namespace String
 
     codepoint_t GetNextCodepoint(utf8* ptr, utf8** nextPtr)
     {
-        return GetNextCodepoint((const utf8*)ptr, (const utf8**)nextPtr);
+        return GetNextCodepoint(static_cast<const utf8*>(ptr), const_cast<const utf8**>(nextPtr));
     }
 
     codepoint_t GetNextCodepoint(const utf8* ptr, const utf8** nextPtr)
@@ -486,10 +538,17 @@ namespace String
         return utf8_write_codepoint(dst, codepoint);
     }
 
+    void AppendCodepoint(std::string& str, codepoint_t codepoint)
+    {
+        char buffer[8]{};
+        utf8_write_codepoint(buffer, codepoint);
+        str.append(buffer);
+    }
+
     bool IsWhiteSpace(codepoint_t codepoint)
     {
         // 0x3000 is the 'ideographic space', a 'fullwidth' character used in CJK languages.
-        return iswspace((wchar_t)codepoint) || codepoint == 0x3000;
+        return iswspace(static_cast<wchar_t>(codepoint)) || codepoint == 0x3000;
     }
 
     utf8* Trim(utf8* str)
@@ -649,7 +708,8 @@ namespace String
 
         // Convert the lot.
         char* buffer_target = &buffer[0];
-        ucnv_fromUnicode(conv, &buffer_target, buffer_limit, (const UChar**)&source, source_limit, nullptr, true, &status);
+        ucnv_fromUnicode(
+            conv, &buffer_target, buffer_limit, static_cast<const UChar**>(&source), source_limit, nullptr, true, &status);
 
         if (U_FAILURE(status))
         {
@@ -663,13 +723,13 @@ namespace String
     }
 #endif
 
-    std::string Convert(const std::string_view& src, int32_t srcCodePage, int32_t dstCodePage)
+    std::string Convert(std::string_view src, int32_t srcCodePage, int32_t dstCodePage)
     {
 #ifdef _WIN32
         // Convert from source code page to UTF-16
         std::wstring u16;
         {
-            int srcLen = (int)src.size();
+            int srcLen = static_cast<int>(src.size());
             int sizeReq = MultiByteToWideChar(srcCodePage, 0, src.data(), srcLen, nullptr, 0);
             u16 = std::wstring(sizeReq, 0);
             MultiByteToWideChar(srcCodePage, 0, src.data(), srcLen, u16.data(), sizeReq);
@@ -678,7 +738,7 @@ namespace String
         // Convert from UTF-16 to destination code page
         std::string dst;
         {
-            int srcLen = (int)u16.size();
+            int srcLen = static_cast<int>(u16.size());
             int sizeReq = WideCharToMultiByte(dstCodePage, 0, u16.data(), srcLen, nullptr, 0, nullptr, nullptr);
             dst = std::string(sizeReq, 0);
             WideCharToMultiByte(dstCodePage, 0, u16.data(), srcLen, dst.data(), sizeReq, nullptr, nullptr);
@@ -703,23 +763,24 @@ namespace String
 #endif
     }
 
-    std::string ToUpper(const std::string_view& src)
+    std::string ToUpper(std::string_view src)
     {
 #ifdef _WIN32
-        auto srcW = ToUtf16(src);
+#    if _WIN32_WINNT >= 0x0600
+        auto srcW = ToWideChar(src);
 
         // Measure how long the destination needs to be
         auto requiredSize = LCMapStringEx(
-            LOCALE_NAME_USER_DEFAULT, LCMAP_UPPERCASE | LCMAP_LINGUISTIC_CASING, srcW.c_str(), (int)srcW.length(), nullptr, 0,
-            nullptr, nullptr, 0);
+            LOCALE_NAME_USER_DEFAULT, LCMAP_UPPERCASE | LCMAP_LINGUISTIC_CASING, srcW.c_str(), static_cast<int>(srcW.length()),
+            nullptr, 0, nullptr, nullptr, 0);
 
         auto dstW = std::wstring();
         dstW.resize(requiredSize);
 
         // Transform the string
         auto result = LCMapStringEx(
-            LOCALE_NAME_USER_DEFAULT, LCMAP_UPPERCASE | LCMAP_LINGUISTIC_CASING, srcW.c_str(), (int)srcW.length(), dstW.data(),
-            (int)dstW.length(), nullptr, nullptr, 0);
+            LOCALE_NAME_USER_DEFAULT, LCMAP_UPPERCASE | LCMAP_LINGUISTIC_CASING, srcW.c_str(), static_cast<int>(srcW.length()),
+            dstW.data(), static_cast<int>(dstW.length()), nullptr, nullptr, 0);
         if (result == 0)
         {
             // Check the error
@@ -731,6 +792,11 @@ namespace String
         {
             return String::ToUtf8(dstW);
         }
+#    else
+        std::string dst = std::string(src);
+        std::transform(dst.begin(), dst.end(), dst.begin(), [](unsigned char c) { return std::toupper(c); });
+        return dst;
+#    endif
 #else
         icu::UnicodeString str = icu::UnicodeString::fromUTF8(std::string(src));
         str.toUpper();
@@ -742,15 +808,24 @@ namespace String
 #endif
     }
 
-    bool ContainsColourCode(const std::string& string)
+    std::string_view UTF8Truncate(std::string_view v, size_t size)
     {
-        for (unsigned char c : string)
+        auto trunc = v.substr(0, size);
+        for (size_t i = 0; i < trunc.size();)
         {
-            if (c >= FORMAT_COLOUR_CODE_START && c <= FORMAT_COLOUR_CODE_END)
+            auto length = UTF8GetCodePointSize(trunc.substr(i, trunc.size()));
+            if (!length.has_value())
             {
-                return true;
+                return trunc.substr(0, i);
             }
+            i += *length;
         }
-        return false;
+
+        return trunc;
     }
 } // namespace String
+
+char32_t CodepointView::iterator::GetNextCodepoint(const char* ch, const char** next)
+{
+    return utf8_get_next(ch, next);
+}

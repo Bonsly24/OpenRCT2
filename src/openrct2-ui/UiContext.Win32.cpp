@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (c) 2014-2019 OpenRCT2 developers
+ * Copyright (c) 2014-2020 OpenRCT2 developers
  *
  * For a complete list of all authors, please refer to contributors.md
  * Interested in contributing? Visit https://github.com/OpenRCT2/OpenRCT2
@@ -9,14 +9,18 @@
 
 #ifdef _WIN32
 
-#    ifdef __MINGW32__
+#    if defined(__MINGW32__) && !defined(WINVER) && !defined(_WIN32_WINNT)
 // 0x0600 == vista
 #        define WINVER 0x0600
 #        define _WIN32_WINNT 0x0600
 #    endif // __MINGW32__
 
 // Windows.h needs to be included first
+// clang-format off
 #    include <windows.h>
+#    include <shellapi.h>
+#    include <commdlg.h>
+// clang-format on
 #    undef CreateWindow
 
 // Then the rest
@@ -38,7 +42,7 @@
 static std::wstring SHGetPathFromIDListLongPath(LPCITEMIDLIST pidl)
 {
     std::wstring pszPath(MAX_PATH, 0);
-    while (!SHGetPathFromIDListEx(pidl, &pszPath[0], (DWORD)pszPath.size(), 0))
+    while (!SHGetPathFromIDListW(pidl, &pszPath[0]))
     {
         if (pszPath.size() >= SHRT_MAX)
         {
@@ -73,7 +77,7 @@ namespace OpenRCT2::Ui
                     HWND hwnd = GetHWND(window);
                     if (hwnd != nullptr)
                     {
-                        SendMessageA(hwnd, WM_SETICON, ICON_SMALL, (LPARAM)icon);
+                        SendMessageA(hwnd, WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(icon));
                     }
                 }
             }
@@ -87,34 +91,50 @@ namespace OpenRCT2::Ui
         void ShowMessageBox(SDL_Window* window, const std::string& message) override
         {
             HWND hwnd = GetHWND(window);
-            std::wstring messageW = String::ToUtf16(message);
+            std::wstring messageW = String::ToWideChar(message);
             MessageBoxW(hwnd, messageW.c_str(), L"OpenRCT2", MB_OK);
+        }
+
+        bool HasMenuSupport() override
+        {
+            return false;
+        }
+
+        int32_t ShowMenuDialog(
+            const std::vector<std::string>& options, const std::string& title, const std::string& text) override
+        {
+            return -1;
         }
 
         void OpenFolder(const std::string& path) override
         {
-            std::wstring pathW = String::ToUtf16(path);
+            std::wstring pathW = String::ToWideChar(path);
             ShellExecuteW(NULL, L"open", pathW.c_str(), NULL, NULL, SW_SHOWNORMAL);
+        }
+
+        void OpenURL(const std::string& url) override
+        {
+            std::wstring urlW = String::ToWideChar(url);
+            ShellExecuteW(NULL, L"open", urlW.c_str(), NULL, NULL, SW_SHOWNORMAL);
         }
 
         std::string ShowFileDialog(SDL_Window* window, const FileDialogDesc& desc) override
         {
-            std::wstring wcFilename = String::ToUtf16(desc.DefaultFilename);
+            std::wstring wcFilename = String::ToWideChar(desc.DefaultFilename);
             wcFilename.resize(std::max<size_t>(wcFilename.size(), MAX_PATH));
 
-            std::wstring wcTitle = String::ToUtf16(desc.Title);
-            std::wstring wcInitialDirectory = String::ToUtf16(desc.InitialDirectory);
+            std::wstring wcTitle = String::ToWideChar(desc.Title);
+            std::wstring wcInitialDirectory = String::ToWideChar(desc.InitialDirectory);
             std::wstring wcFilters = GetFilterString(desc.Filters);
 
             // Set open file name options
             OPENFILENAMEW openFileName = {};
             openFileName.lStructSize = sizeof(OPENFILENAMEW);
-            openFileName.hwndOwner = GetHWND(window);
             openFileName.lpstrTitle = wcTitle.c_str();
             openFileName.lpstrInitialDir = wcInitialDirectory.c_str();
             openFileName.lpstrFilter = wcFilters.c_str();
             openFileName.lpstrFile = &wcFilename[0];
-            openFileName.nMaxFile = (DWORD)wcFilename.size();
+            openFileName.nMaxFile = static_cast<DWORD>(wcFilename.size());
 
             // Open dialog
             BOOL dialogResult = FALSE;
@@ -142,7 +162,7 @@ namespace OpenRCT2::Ui
                     int32_t filterIndex = openFileName.nFilterIndex - 1;
 
                     assert(filterIndex >= 0);
-                    assert(filterIndex < (int32_t)desc.Filters.size());
+                    assert(filterIndex < static_cast<int32_t>(desc.Filters.size()));
 
                     std::string pattern = desc.Filters[filterIndex].Pattern;
                     std::string patternExtension = Path::GetExtension(pattern);
@@ -163,7 +183,7 @@ namespace OpenRCT2::Ui
             LPMALLOC lpMalloc;
             if (SUCCEEDED(CoInitializeEx(0, COINIT_APARTMENTTHREADED)) && SUCCEEDED(SHGetMalloc(&lpMalloc)))
             {
-                std::wstring titleW = String::ToUtf16(title);
+                std::wstring titleW = String::ToWideChar(title);
                 BROWSEINFOW bi = {};
                 bi.lpszTitle = titleW.c_str();
                 bi.ulFlags = BIF_RETURNONLYFSDIRS | BIF_NEWDIALOGSTYLE | BIF_NONEWFOLDERBUTTON;
@@ -188,6 +208,11 @@ namespace OpenRCT2::Ui
             return result;
         }
 
+        bool HasFilePicker() const override
+        {
+            return true;
+        }
+
     private:
         HWND GetHWND(SDL_Window* window)
         {
@@ -210,9 +235,9 @@ namespace OpenRCT2::Ui
         static std::wstring GetFilterString(const std::vector<FileDialogDesc::Filter> filters)
         {
             std::wstringstream filtersb;
-            for (auto filter : filters)
+            for (const auto& filter : filters)
             {
-                filtersb << String::ToUtf16(filter.Name) << '\0' << String::ToUtf16(filter.Pattern) << '\0';
+                filtersb << String::ToWideChar(filter.Name) << '\0' << String::ToWideChar(filter.Pattern) << '\0';
             }
             return filtersb.str();
         }

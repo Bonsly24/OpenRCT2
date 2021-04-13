@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (c) 2014-2019 OpenRCT2 developers
+ * Copyright (c) 2014-2020 OpenRCT2 developers
  *
  * For a complete list of all authors, please refer to contributors.md
  * Interested in contributing? Visit https://github.com/OpenRCT2/OpenRCT2
@@ -19,10 +19,10 @@
 #define BACKROUND_COLOUR_LOGO PALETTE_INDEX_245
 #define BORDER_COLOUR_PUBLISHER PALETTE_INDEX_129
 
-#define PALETTE_G1_IDX_DEVELOPER 23217
-#define PALETTE_G1_IDX_LOGO 23224
+constexpr int32_t PALETTE_G1_IDX_DEVELOPER = 23217;
+constexpr int32_t PALETTE_G1_IDX_LOGO = 23224;
 
-uint8_t gIntroState;
+IntroState gIntroState;
 
 // Used mainly for timing but also for Y coordinate and fading.
 static int32_t _introStateCounter;
@@ -43,23 +43,24 @@ void intro_update()
 
     switch (gIntroState)
     {
-        case INTRO_STATE_DISCLAIMER_1:
-        case INTRO_STATE_DISCLAIMER_2:
+        case IntroState::Disclaimer1:
+        case IntroState::Disclaimer2:
             // Originally used for the disclaimer text
-            gIntroState = INTRO_STATE_PUBLISHER_BEGIN;
+            gIntroState = IntroState::PublisherBegin;
             [[fallthrough]];
-        case INTRO_STATE_PUBLISHER_BEGIN:
+        case IntroState::PublisherBegin:
             load_palette();
 
             // Set the Y for the Infogrames logo
             _introStateCounter = -580;
 
             // Play the chain lift sound
-            _soundChannel = Mixer_Play_Effect(SOUND_LIFT_7, MIXER_LOOP_INFINITE, MIXER_VOLUME_MAX, 0.5f, 1, true);
+            _soundChannel = Mixer_Play_Effect(
+                OpenRCT2::Audio::SoundId::LiftBM, MIXER_LOOP_INFINITE, MIXER_VOLUME_MAX, 0.5f, 1, true);
             _chainLiftFinished = false;
-            gIntroState++;
+            gIntroState = IntroState::PublisherScroll;
             break;
-        case INTRO_STATE_PUBLISHER_SCROLL:
+        case IntroState::PublisherScroll:
             // Move the Infogrames logo down
             _introStateCounter += 5;
 
@@ -67,17 +68,17 @@ void intro_update()
             if (_introStateCounter > context_get_height() - 120)
             {
                 _introStateCounter = -116;
-                gIntroState++;
+                gIntroState = IntroState::DeveloperBegin;
             }
 
             break;
-        case INTRO_STATE_DEVELOPER_BEGIN:
+        case IntroState::DeveloperBegin:
             // Set the Y for the Chris Sawyer logo
             _introStateCounter = -116;
 
-            gIntroState++;
+            gIntroState = IntroState::DeveloperScroll;
             break;
-        case INTRO_STATE_DEVELOPER_SCROLL:
+        case IntroState::DeveloperScroll:
             _introStateCounter += 5;
 
             // Check if logo is almost scrolled to the bottom
@@ -94,7 +95,7 @@ void intro_update()
 
                 // Play the track friction sound
                 _soundChannel = Mixer_Play_Effect(
-                    SOUND_TRACK_FRICTION_3, MIXER_LOOP_INFINITE, MIXER_VOLUME_MAX, 0.25f, 0.75, true);
+                    OpenRCT2::Audio::SoundId::TrackFrictionBM, MIXER_LOOP_INFINITE, MIXER_VOLUME_MAX, 0.25f, 0.75, true);
             }
 
             // Check if logo is off the screen...ish
@@ -108,22 +109,23 @@ void intro_update()
                 }
 
                 // Play long peep scream sound
-                _soundChannel = Mixer_Play_Effect(SOUND_SCREAM_1, MIXER_LOOP_NONE, MIXER_VOLUME_MAX, 0.5f, 1, false);
+                _soundChannel = Mixer_Play_Effect(
+                    OpenRCT2::Audio::SoundId::Scream1, MIXER_LOOP_NONE, MIXER_VOLUME_MAX, 0.5f, 1, false);
 
-                gIntroState++;
+                gIntroState = IntroState::LogoFadeIn;
                 _introStateCounter = 0;
             }
             break;
-        case INTRO_STATE_LOGO_FADE_IN:
+        case IntroState::LogoFadeIn:
             // Fade in, add 4 / 256 to fading
             _introStateCounter += 0x400;
             if (_introStateCounter > 0xFF00)
             {
-                gIntroState++;
+                gIntroState = IntroState::LogoWait;
                 _introStateCounter = 0;
             }
             break;
-        case INTRO_STATE_LOGO_WAIT:
+        case IntroState::LogoWait:
             // Wait 80 game ticks
             _introStateCounter++;
             if (_introStateCounter >= 80)
@@ -131,18 +133,18 @@ void intro_update()
                 // Set fading to 256
                 _introStateCounter = 0xFF00;
 
-                gIntroState++;
+                gIntroState = IntroState::LogoFadeOut;
             }
             break;
-        case INTRO_STATE_LOGO_FADE_OUT:
+        case IntroState::LogoFadeOut:
             // Fade out, subtract 4 / 256 from fading
             _introStateCounter -= 0x400;
             if (_introStateCounter < 0)
             {
-                gIntroState = INTRO_STATE_CLEAR;
+                gIntroState = IntroState::Clear;
             }
             break;
-        case INTRO_STATE_CLEAR:
+        case IntroState::Clear:
             // Stop any playing sound
             if (_soundChannel != nullptr)
             {
@@ -151,13 +153,15 @@ void intro_update()
             }
 
             // Move to next part
-            gIntroState++;
+            gIntroState = IntroState::Finish;
             _introStateCounter = 0;
             break;
-        case INTRO_STATE_FINISH:
-            gIntroState = INTRO_STATE_NONE;
+        case IntroState::Finish:
+            gIntroState = IntroState::None;
             load_palette();
-            audio_start_title_music();
+            OpenRCT2::Audio::PlayTitleMusic();
+            break;
+        default:
             break;
     }
 }
@@ -168,38 +172,40 @@ void intro_draw(rct_drawpixelinfo* dpi)
 
     switch (gIntroState)
     {
-        case INTRO_STATE_DISCLAIMER_1:
-        case INTRO_STATE_DISCLAIMER_2:
+        case IntroState::Disclaimer1:
+        case IntroState::Disclaimer2:
             break;
-        case INTRO_STATE_PUBLISHER_BEGIN:
+        case IntroState::PublisherBegin:
             gfx_clear(dpi, BACKROUND_COLOUR_DARK);
             break;
-        case INTRO_STATE_PUBLISHER_SCROLL:
+        case IntroState::PublisherScroll:
             gfx_clear(dpi, BACKROUND_COLOUR_DARK);
 
             // Draw a white rectangle for the logo background (gives a bit of white margin)
             gfx_fill_rect(
-                dpi, (screenWidth / 2) - 320 + 50, _introStateCounter + 50, (screenWidth / 2) - 320 + 50 + 540,
-                _introStateCounter + 50 + 425, BORDER_COLOUR_PUBLISHER);
+                dpi,
+                { { (screenWidth / 2) - 320 + 50, _introStateCounter + 50 },
+                  { (screenWidth / 2) - 320 + 50 + 540, _introStateCounter + 50 + 425 } },
+                BORDER_COLOUR_PUBLISHER);
 
             // Draw Infogrames logo
-            gfx_draw_sprite(dpi, SPR_INTRO_INFOGRAMES_00, (screenWidth / 2) - 320 + 69, _introStateCounter + 69, 0);
-            gfx_draw_sprite(dpi, SPR_INTRO_INFOGRAMES_10, (screenWidth / 2) - 320 + 319, _introStateCounter + 69, 0);
-            gfx_draw_sprite(dpi, SPR_INTRO_INFOGRAMES_01, (screenWidth / 2) - 320 + 69, _introStateCounter + 319, 0);
-            gfx_draw_sprite(dpi, SPR_INTRO_INFOGRAMES_11, (screenWidth / 2) - 320 + 319, _introStateCounter + 319, 0);
+            gfx_draw_sprite(dpi, ImageId(SPR_INTRO_INFOGRAMES_00), { (screenWidth / 2) - 320 + 69, _introStateCounter + 69 });
+            gfx_draw_sprite(dpi, ImageId(SPR_INTRO_INFOGRAMES_10), { (screenWidth / 2) - 320 + 319, _introStateCounter + 69 });
+            gfx_draw_sprite(dpi, ImageId(SPR_INTRO_INFOGRAMES_01), { (screenWidth / 2) - 320 + 69, _introStateCounter + 319 });
+            gfx_draw_sprite(dpi, ImageId(SPR_INTRO_INFOGRAMES_11), { (screenWidth / 2) - 320 + 319, _introStateCounter + 319 });
             break;
-        case INTRO_STATE_DEVELOPER_BEGIN:
+        case IntroState::DeveloperBegin:
             gfx_clear(dpi, BACKROUND_COLOUR_DARK);
             gfx_transpose_palette(PALETTE_G1_IDX_DEVELOPER, 255);
             break;
-        case INTRO_STATE_DEVELOPER_SCROLL:
+        case IntroState::DeveloperScroll:
             gfx_clear(dpi, BACKROUND_COLOUR_DARK);
 
             // Draw Chris Sawyer logo
-            gfx_draw_sprite(dpi, SPR_INTRO_CHRIS_SAWYER_00, (screenWidth / 2) - 320 + 70, _introStateCounter, 0);
-            gfx_draw_sprite(dpi, SPR_INTRO_CHRIS_SAWYER_10, (screenWidth / 2) - 320 + 320, _introStateCounter, 0);
+            gfx_draw_sprite(dpi, ImageId(SPR_INTRO_CHRIS_SAWYER_00), { (screenWidth / 2) - 320 + 70, _introStateCounter });
+            gfx_draw_sprite(dpi, ImageId(SPR_INTRO_CHRIS_SAWYER_10), { (screenWidth / 2) - 320 + 320, _introStateCounter });
             break;
-        case INTRO_STATE_LOGO_FADE_IN:
+        case IntroState::LogoFadeIn:
             if (_introStateCounter <= 0xFF00)
             {
                 gfx_transpose_palette(PALETTE_G1_IDX_LOGO, (_introStateCounter >> 8) & 0xFF);
@@ -210,10 +216,10 @@ void intro_draw(rct_drawpixelinfo* dpi)
             }
             screen_intro_draw_logo(dpi);
             break;
-        case INTRO_STATE_LOGO_WAIT:
+        case IntroState::LogoWait:
             screen_intro_draw_logo(dpi);
             break;
-        case INTRO_STATE_LOGO_FADE_OUT:
+        case IntroState::LogoFadeOut:
             if (_introStateCounter >= 0)
             {
                 gfx_transpose_palette(PALETTE_G1_IDX_LOGO, (_introStateCounter >> 8) & 0xFF);
@@ -224,8 +230,10 @@ void intro_draw(rct_drawpixelinfo* dpi)
             }
             screen_intro_draw_logo(dpi);
             break;
-        case INTRO_STATE_CLEAR:
+        case IntroState::Clear:
             gfx_clear(dpi, BACKROUND_COLOUR_DARK);
+            break;
+        default:
             break;
     }
 }
@@ -259,13 +267,13 @@ static void screen_intro_skip_part()
 {
     switch (gIntroState)
     {
-        case INTRO_STATE_NONE:
+        case IntroState::None:
             break;
-        case INTRO_STATE_DISCLAIMER_2:
-            gIntroState = INTRO_STATE_PUBLISHER_BEGIN;
+        case IntroState::Disclaimer2:
+            gIntroState = IntroState::PublisherBegin;
             break;
         default:
-            gIntroState = INTRO_STATE_CLEAR;
+            gIntroState = IntroState::Clear;
             break;
     }
 }
@@ -284,10 +292,10 @@ static void screen_intro_draw_logo(rct_drawpixelinfo* dpi)
     drawing_engine_invalidate_image(SPR_INTRO_LOGO_21);
 
     gfx_clear(dpi, BACKROUND_COLOUR_LOGO);
-    gfx_draw_sprite(dpi, SPR_INTRO_LOGO_00, imageX + 0, 0, 0);
-    gfx_draw_sprite(dpi, SPR_INTRO_LOGO_10, imageX + 220, 0, 0);
-    gfx_draw_sprite(dpi, SPR_INTRO_LOGO_20, imageX + 440, 0, 0);
-    gfx_draw_sprite(dpi, SPR_INTRO_LOGO_01, imageX + 0, 240, 0);
-    gfx_draw_sprite(dpi, SPR_INTRO_LOGO_11, imageX + 220, 240, 0);
-    gfx_draw_sprite(dpi, SPR_INTRO_LOGO_21, imageX + 440, 240, 0);
+    gfx_draw_sprite(dpi, ImageId(SPR_INTRO_LOGO_00), { imageX + 0, 0 });
+    gfx_draw_sprite(dpi, ImageId(SPR_INTRO_LOGO_10), { imageX + 220, 0 });
+    gfx_draw_sprite(dpi, ImageId(SPR_INTRO_LOGO_20), { imageX + 440, 0 });
+    gfx_draw_sprite(dpi, ImageId(SPR_INTRO_LOGO_01), { imageX + 0, 240 });
+    gfx_draw_sprite(dpi, ImageId(SPR_INTRO_LOGO_11), { imageX + 220, 240 });
+    gfx_draw_sprite(dpi, ImageId(SPR_INTRO_LOGO_21), { imageX + 440, 240 });
 }

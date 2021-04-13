@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (c) 2014-2019 OpenRCT2 developers
+ * Copyright (c) 2014-2020 OpenRCT2 developers
  *
  * For a complete list of all authors, please refer to contributors.md
  * Interested in contributing? Visit https://github.com/OpenRCT2/OpenRCT2
@@ -11,12 +11,13 @@
 #include "../Context.h"
 #include "../Game.h"
 #include "../Input.h"
-#include "../actions/TrackPlaceAction.hpp"
+#include "../actions/TrackPlaceAction.h"
 #include "../audio/audio.h"
 #include "../interface/Viewport.h"
 #include "../network/network.h"
 #include "../paint/VirtualFloor.h"
 #include "../peep/Staff.h"
+#include "../ride/RideData.h"
 #include "../ride/Track.h"
 #include "../ride/TrackData.h"
 #include "../world/Banner.h"
@@ -28,58 +29,6 @@
 #include <tuple>
 
 bool gDisableErrorWindowSound = false;
-
-void game_command_callback_pickup_guest(
-    int32_t eax, int32_t ebx, int32_t ecx, [[maybe_unused]] int32_t edx, [[maybe_unused]] int32_t esi,
-    [[maybe_unused]] int32_t edi, [[maybe_unused]] int32_t ebp)
-{
-    switch (ecx)
-    {
-        case 0:
-        {
-            int32_t peepnum = eax;
-            rct_window* w = window_find_by_number(WC_PEEP, peepnum);
-            if (w)
-            {
-                tool_set(w, WC_PEEP__WIDX_PICKUP, TOOL_PICKER);
-            }
-        }
-        break;
-        case 2:
-            if (ebx == 0)
-            {
-                tool_cancel();
-                gPickupPeepImage = UINT32_MAX;
-            }
-            break;
-    }
-}
-
-void game_command_callback_pickup_staff(
-    int32_t eax, int32_t ebx, int32_t ecx, [[maybe_unused]] int32_t edx, [[maybe_unused]] int32_t esi,
-    [[maybe_unused]] int32_t edi, [[maybe_unused]] int32_t ebp)
-{
-    switch (ecx)
-    {
-        case 0:
-        {
-            int32_t peepnum = eax;
-            rct_window* w = window_find_by_number(WC_PEEP, peepnum);
-            if (w)
-            {
-                tool_set(w, WC_STAFF__WIDX_PICKUP, TOOL_PICKER);
-            }
-        }
-        break;
-        case 2:
-            if (ebx == 0)
-            {
-                tool_cancel();
-                gPickupPeepImage = UINT32_MAX;
-            }
-            break;
-    }
-}
 
 uint64_t _enabledRidePieces;
 uint8_t _rideConstructionState2;
@@ -94,26 +43,24 @@ bool _deferClose;
  *  rct2: 0x006CA162
  */
 money32 place_provisional_track_piece(
-    ride_id_t rideIndex, int32_t trackType, int32_t trackDirection, int32_t liftHillAndAlternativeState, int32_t x, int32_t y,
-    int32_t z)
+    ride_id_t rideIndex, int32_t trackType, int32_t trackDirection, int32_t liftHillAndAlternativeState,
+    const CoordsXYZ& trackPos)
 {
-    Ride* ride;
-    money32 result;
+    auto ride = get_ride(rideIndex);
+    if (ride == nullptr)
+        return MONEY32_UNDEFINED;
 
+    money32 result;
     ride_construction_remove_ghosts();
-    ride = get_ride(rideIndex);
     if (ride->type == RIDE_TYPE_MAZE)
     {
         int32_t flags = GAME_COMMAND_FLAG_APPLY | GAME_COMMAND_FLAG_ALLOW_DURING_PAUSED | GAME_COMMAND_FLAG_NO_SPEND
             | GAME_COMMAND_FLAG_GHOST; // 105
-        result = maze_set_track(x, y, z, flags, true, 0, rideIndex, GC_SET_MAZE_TRACK_BUILD);
+        result = maze_set_track(trackPos.x, trackPos.y, trackPos.z, flags, true, 0, rideIndex, GC_SET_MAZE_TRACK_BUILD);
         if (result == MONEY32_UNDEFINED)
             return result;
 
-        _unkF440C5.x = x;
-        _unkF440C5.y = y;
-        _unkF440C5.z = z;
-        _unkF440C5.direction = trackDirection;
+        _unkF440C5 = { trackPos, static_cast<Direction>(trackDirection) };
         _currentTrackSelectionFlags |= TRACK_SELECTION_FLAG_TRACK;
         viewport_set_visibility(3);
         if (_currentTrackSlopeEnd != 0)
@@ -125,7 +72,7 @@ money32 place_provisional_track_piece(
         if (!scenery_tool_is_active())
         {
             // Set new virtual floor height.
-            virtual_floor_set_height(z);
+            virtual_floor_set_height(trackPos.z);
         }
 
         return result;
@@ -133,35 +80,34 @@ money32 place_provisional_track_piece(
     else
     {
         auto trackPlaceAction = TrackPlaceAction(
-            rideIndex, trackType, { x, y, z, static_cast<uint8_t>(trackDirection) }, 0, 0, 0, liftHillAndAlternativeState);
+            rideIndex, trackType, { trackPos, static_cast<uint8_t>(trackDirection) }, 0, 0, 0, liftHillAndAlternativeState,
+            false);
         trackPlaceAction.SetFlags(GAME_COMMAND_FLAG_ALLOW_DURING_PAUSED | GAME_COMMAND_FLAG_NO_SPEND | GAME_COMMAND_FLAG_GHOST);
         // This command must not be sent over the network
         auto res = GameActions::Execute(&trackPlaceAction);
-        result = res->Error == GA_ERROR::OK ? res->Cost : MONEY32_UNDEFINED;
+        auto tpar = dynamic_cast<TrackPlaceActionResult*>(res.get());
+        result = ((tpar == nullptr) || (res->Error == GameActions::Status::Ok)) ? res->Cost : MONEY32_UNDEFINED;
         if (result == MONEY32_UNDEFINED)
             return result;
 
         int16_t z_begin, z_end;
-        const rct_track_coordinates* coords = get_track_coord_from_ride(ride, trackType);
-        if (!ride_type_has_flag(ride->type, RIDE_TYPE_FLAG_HAS_NO_TRACK))
+        const rct_track_coordinates& coords = TrackCoordinates[trackType];
+        if (!ride->GetRideTypeDescriptor().HasFlag(RIDE_TYPE_FLAG_HAS_NO_TRACK))
         {
-            z_begin = coords->z_begin;
-            z_end = coords->z_end;
+            z_begin = coords.z_begin;
+            z_end = coords.z_end;
         }
         else
         {
-            z_end = z_begin = coords->z_begin;
+            z_end = z_begin = coords.z_begin;
         }
 
-        _unkF440C5.x = x;
-        _unkF440C5.y = y;
-        z += z_begin;
-
-        _unkF440C5.z = z;
-        _unkF440C5.direction = trackDirection;
+        _unkF440C5 = { trackPos.x, trackPos.y, trackPos.z + z_begin, static_cast<Direction>(trackDirection) };
         _currentTrackSelectionFlags |= TRACK_SELECTION_FLAG_TRACK;
-        viewport_set_visibility(
-            (dynamic_cast<TrackPlaceActionResult*>(res.get())->GroundFlags & TRACK_ELEMENT_LOCATION_IS_UNDERGROUND) ? 1 : 3);
+        if (tpar != nullptr)
+        {
+            viewport_set_visibility((tpar->GroundFlags & ELEMENT_IS_UNDERGROUND) ? 1 : 3);
+        }
         if (_currentTrackSlopeEnd != 0)
             viewport_set_visibility(2);
 
@@ -171,14 +117,14 @@ money32 place_provisional_track_piece(
         if (!scenery_tool_is_active())
         {
             // Set height to where the next track piece would begin
-            virtual_floor_set_height(z - z_begin + z_end);
+            virtual_floor_set_height(trackPos.z - z_begin + z_end);
         }
 
         return result;
     }
 }
 
-static std::tuple<bool, uint8_t> window_ride_construction_update_state_get_track_element()
+static std::tuple<bool, track_type_t> window_ride_construction_update_state_get_track_element()
 {
     auto intent = Intent(INTENT_ACTION_RIDE_CONSTRUCTION_UPDATE_PIECES);
     context_broadcast_intent(&intent);
@@ -196,8 +142,8 @@ static std::tuple<bool, uint8_t> window_ride_construction_update_state_get_track
         endBank = _previousTrackBankEnd;
     }
 
-    uint16_t curve = _currentTrackCurve;
-    if (curve == 0xFFFF)
+    auto curve = _currentTrackCurve;
+    if (curve == TrackElemType::None)
     {
         return std::make_tuple(false, 0);
     }
@@ -236,11 +182,11 @@ static std::tuple<bool, uint8_t> window_ride_construction_update_state_get_track
         return std::make_tuple(false, 0);
     }
 
-    switch (curve & 0xFF)
+    switch (curve & 0xFFFF)
     {
-        case TRACK_ELEM_END_STATION:
-        case TRACK_ELEM_S_BEND_LEFT:
-        case TRACK_ELEM_S_BEND_RIGHT:
+        case TrackElemType::EndStation:
+        case TrackElemType::SBendLeft:
+        case TrackElemType::SBendRight:
             if (startSlope != TRACK_SLOPE_NONE || endSlope != TRACK_SLOPE_NONE)
             {
                 return std::make_tuple(false, 0);
@@ -251,10 +197,10 @@ static std::tuple<bool, uint8_t> window_ride_construction_update_state_get_track
                 return std::make_tuple(false, 0);
             }
 
-            return std::make_tuple(true, curve & 0xFF);
+            return std::make_tuple(true, static_cast<track_type_t>(curve & 0xFFFF));
 
-        case TRACK_ELEM_LEFT_VERTICAL_LOOP:
-        case TRACK_ELEM_RIGHT_VERTICAL_LOOP:
+        case TrackElemType::LeftVerticalLoop:
+        case TrackElemType::RightVerticalLoop:
             if (startBank != TRACK_BANK_NONE || endBank != TRACK_BANK_NONE)
             {
                 return std::make_tuple(false, 0);
@@ -275,10 +221,10 @@ static std::tuple<bool, uint8_t> window_ride_construction_update_state_get_track
                 }
             }
 
-            return std::make_tuple(true, curve & 0xFF);
+            return std::make_tuple(true, static_cast<track_type_t>(curve & 0xFFFF));
 
         default:
-            return std::make_tuple(true, curve & 0xFF);
+            return std::make_tuple(true, static_cast<track_type_t>(curve & 0xFFFF));
     }
 }
 
@@ -288,7 +234,7 @@ static std::tuple<bool, uint8_t> window_ride_construction_update_state_get_track
  * @param[out] _trackType (dh)
  * @param[out] _trackDirection (bh)
  * @param[out] _rideIndex (dl)
- * @param[out] _liftHillAndAlternativeState (liftHillAndAlternativeState)
+ * @param[out] _liftHillAndInvertedState (liftHillAndInvertedState)
  * @param[out] _x (ax)
  * @param[out] _y (cx)
  * @param[out] _z (di)
@@ -296,12 +242,12 @@ static std::tuple<bool, uint8_t> window_ride_construction_update_state_get_track
  * @return (CF)
  */
 bool window_ride_construction_update_state(
-    int32_t* _trackType, int32_t* _trackDirection, ride_id_t* _rideIndex, int32_t* _liftHillAndAlternativeState, int32_t* _x,
-    int32_t* _y, int32_t* _z, int32_t* _properties)
+    int32_t* _trackType, int32_t* _trackDirection, ride_id_t* _rideIndex, int32_t* _liftHillAndInvertedState,
+    CoordsXYZ* _trackPos, int32_t* _properties)
 {
     ride_id_t rideIndex;
-    uint8_t trackType, trackDirection;
-    uint16_t z, x, y, liftHillAndAlternativeState, properties;
+    uint8_t trackDirection;
+    uint16_t x, y, liftHillAndInvertedState, properties;
 
     auto updated_element = window_ride_construction_update_state_get_track_element();
     if (!std::get<0>(updated_element))
@@ -309,109 +255,91 @@ bool window_ride_construction_update_state(
         return true;
     }
 
-    trackType = std::get<1>(updated_element);
-    liftHillAndAlternativeState = 0;
+    track_type_t trackType = std::get<1>(updated_element);
+    liftHillAndInvertedState = 0;
     rideIndex = _currentRideIndex;
     if (_currentTrackLiftHill & CONSTRUCTION_LIFT_HILL_SELECTED)
     {
-        liftHillAndAlternativeState |= CONSTRUCTION_LIFT_HILL_SELECTED;
+        liftHillAndInvertedState |= CONSTRUCTION_LIFT_HILL_SELECTED;
     }
 
     if (_currentTrackAlternative & RIDE_TYPE_ALTERNATIVE_TRACK_TYPE)
     {
-        liftHillAndAlternativeState |= RIDE_TYPE_ALTERNATIVE_TRACK_TYPE;
+        liftHillAndInvertedState |= CONSTRUCTION_INVERTED_TRACK_SELECTED;
     }
 
-    Ride* ride = get_ride(rideIndex);
+    auto ride = get_ride(rideIndex);
+    if (ride == nullptr)
+        return true;
 
     if (_enabledRidePieces & (1ULL << TRACK_SLOPE_STEEP_LONG))
     {
         switch (trackType)
         {
-            case TRACK_ELEM_FLAT_TO_60_DEG_UP:
-                trackType = TRACK_ELEM_FLAT_TO_60_DEG_UP_LONG_BASE;
+            case TrackElemType::FlatToUp60:
+                trackType = TrackElemType::FlatToUp60LongBase;
                 break;
 
-            case TRACK_ELEM_60_DEG_UP_TO_FLAT:
-                trackType = TRACK_ELEM_60_DEG_UP_TO_FLAT_LONG_BASE;
+            case TrackElemType::Up60ToFlat:
+                trackType = TrackElemType::Up60ToFlatLongBase;
                 break;
 
-            case TRACK_ELEM_FLAT_TO_60_DEG_DOWN:
-                trackType = TRACK_ELEM_60_DEG_UP_TO_FLAT_LONG_BASE_122;
+            case TrackElemType::FlatToDown60:
+                trackType = TrackElemType::FlatToDown60LongBase;
                 break;
 
-            case TRACK_ELEM_60_DEG_DOWN_TO_FLAT:
-                trackType = TRACK_ELEM_FLAT_TO_60_DEG_DOWN_LONG_BASE;
+            case TrackElemType::Down60ToFlat:
+                trackType = TrackElemType::Down60ToFlatLongBase;
                 break;
 
-            case TRACK_ELEM_DIAG_FLAT_TO_60_DEG_UP:
-            case TRACK_ELEM_DIAG_60_DEG_UP_TO_FLAT:
-            case TRACK_ELEM_DIAG_FLAT_TO_60_DEG_DOWN:
-            case TRACK_ELEM_DIAG_60_DEG_DOWN_TO_FLAT:
+            case TrackElemType::DiagFlatToUp60:
+            case TrackElemType::DiagUp60ToFlat:
+            case TrackElemType::DiagFlatToDown60:
+            case TrackElemType::DiagDown60ToFlat:
                 return true;
         }
     }
 
-    if (ride_type_has_flag(ride->type, RIDE_TYPE_FLAG_TRACK_ELEMENTS_HAVE_TWO_VARIETIES)
+    const auto& rtd = ride->GetRideTypeDescriptor();
+    if (rtd.HasFlag(RIDE_TYPE_FLAG_TRACK_ELEMENTS_HAVE_TWO_VARIETIES)
         && _currentTrackAlternative & RIDE_TYPE_ALTERNATIVE_TRACK_PIECES)
     {
-        if (ride->type != RIDE_TYPE_WATER_COASTER || trackType == TRACK_ELEM_FLAT
-            || trackType == TRACK_ELEM_LEFT_QUARTER_TURN_5_TILES || trackType == TRACK_ELEM_RIGHT_QUARTER_TURN_5_TILES
-            || trackType == TRACK_ELEM_S_BEND_LEFT || trackType == TRACK_ELEM_S_BEND_RIGHT)
+        auto availablePieces = rtd.CoveredTrackPieces;
+        auto alternativeType = AlternativeTrackTypes[trackType];
+        if (alternativeType != TrackElemType::None && (availablePieces & (1ULL << trackType)))
         {
-            int16_t alternativeType = AlternativeTrackTypes[trackType];
-            if (alternativeType > -1)
-            {
-                trackType = (uint8_t)alternativeType;
-            }
-            liftHillAndAlternativeState &= ~CONSTRUCTION_LIFT_HILL_SELECTED;
+            trackType = alternativeType;
+            liftHillAndInvertedState &= ~CONSTRUCTION_LIFT_HILL_SELECTED;
         }
     }
 
-    const rct_track_coordinates* trackCoordinates = get_track_coord_from_ride(ride, trackType);
+    const rct_track_coordinates& trackCoordinates = TrackCoordinates[trackType];
 
     x = _currentTrackBegin.x;
     y = _currentTrackBegin.y;
-    z = _currentTrackBegin.z;
+    auto z = _currentTrackBegin.z;
     if (_rideConstructionState == RIDE_CONSTRUCTION_STATE_BACK)
     {
-        z -= trackCoordinates->z_end;
+        z -= trackCoordinates.z_end;
         trackDirection = _currentTrackPieceDirection ^ 0x02;
-        trackDirection -= trackCoordinates->rotation_end;
-        trackDirection += trackCoordinates->rotation_begin;
+        trackDirection -= trackCoordinates.rotation_end;
+        trackDirection += trackCoordinates.rotation_begin;
         trackDirection &= 0x03;
 
-        if (trackCoordinates->rotation_begin & (1 << 2))
+        if (trackCoordinates.rotation_begin & (1 << 2))
         {
             trackDirection |= 0x04;
         }
 
-        switch (trackDirection & 0x03)
-        {
-            case 0:
-                x -= trackCoordinates->x;
-                y -= trackCoordinates->y;
-                break;
-
-            case 1:
-                x -= trackCoordinates->y;
-                y += trackCoordinates->x;
-                break;
-
-            case 2:
-                x += trackCoordinates->x;
-                y += trackCoordinates->y;
-                break;
-
-            case 3:
-                x += trackCoordinates->y;
-                y -= trackCoordinates->x;
-                break;
-        }
+        CoordsXY offsets = { trackCoordinates.x, trackCoordinates.y };
+        CoordsXY coords = { x, y };
+        coords += offsets.Rotate(direction_reverse(trackDirection));
+        x = static_cast<uint16_t>(coords.x);
+        y = static_cast<uint16_t>(coords.y);
     }
     else
     {
-        z -= trackCoordinates->z_begin;
+        z -= trackCoordinates.z_begin;
         trackDirection = _currentTrackPieceDirection;
     }
 
@@ -431,16 +359,16 @@ bool window_ride_construction_update_state(
 
     if (turnOffLiftHill && !gCheatsEnableChainLiftOnAllTrack)
     {
-        liftHillAndAlternativeState &= ~CONSTRUCTION_LIFT_HILL_SELECTED;
+        liftHillAndInvertedState &= ~CONSTRUCTION_LIFT_HILL_SELECTED;
         _currentTrackLiftHill &= ~CONSTRUCTION_LIFT_HILL_SELECTED;
 
-        if (trackType == TRACK_ELEM_LEFT_CURVED_LIFT_HILL || trackType == TRACK_ELEM_RIGHT_CURVED_LIFT_HILL)
+        if (trackType == TrackElemType::LeftCurvedLiftHill || trackType == TrackElemType::RightCurvedLiftHill)
         {
-            liftHillAndAlternativeState |= CONSTRUCTION_LIFT_HILL_SELECTED;
+            liftHillAndInvertedState |= CONSTRUCTION_LIFT_HILL_SELECTED;
         }
     }
 
-    if (track_element_has_speed_setting(trackType))
+    if (TrackTypeHasSpeedSetting(trackType))
     {
         properties = _currentBrakeSpeed2;
     }
@@ -455,14 +383,10 @@ bool window_ride_construction_update_state(
         *_trackDirection = trackDirection;
     if (_rideIndex != nullptr)
         *_rideIndex = rideIndex;
-    if (_liftHillAndAlternativeState != nullptr)
-        *_liftHillAndAlternativeState = liftHillAndAlternativeState;
-    if (_x != nullptr)
-        *_x = x;
-    if (_y != nullptr)
-        *_y = y;
-    if (_z != nullptr)
-        *_z = z;
+    if (_liftHillAndInvertedState != nullptr)
+        *_liftHillAndInvertedState = liftHillAndInvertedState;
+    if (_trackPos != nullptr)
+        *_trackPos = { x, y, z };
     if (_properties != nullptr)
         *_properties = properties;
 
@@ -471,9 +395,8 @@ bool window_ride_construction_update_state(
 
 void window_ride_construction_do_entrance_exit_check()
 {
-    rct_window* w = window_find_by_class(WC_RIDE_CONSTRUCTION);
-    Ride* ride = get_ride(_currentRideIndex);
-
+    auto w = window_find_by_class(WC_RIDE_CONSTRUCTION);
+    auto ride = get_ride(_currentRideIndex);
     if (w == nullptr || ride == nullptr)
     {
         return;
@@ -498,46 +421,44 @@ void window_ride_construction_do_entrance_exit_check()
 
 void window_ride_construction_do_station_check()
 {
-    Ride* ride = get_ride(_currentRideIndex);
+    auto ride = get_ride(_currentRideIndex);
     if (ride != nullptr)
     {
         _stationConstructed = ride->num_stations != 0;
     }
 }
 
-void window_ride_construction_mouseup_demolish_next_piece(int32_t x, int32_t y, int32_t z, int32_t direction, int32_t type)
+void window_ride_construction_mouseup_demolish_next_piece(const CoordsXYZD& piecePos, int32_t type)
 {
     if (gGotoStartPlacementMode)
     {
-        z &= 0xFFF0;
-        _currentTrackBegin.z = z;
+        _currentTrackBegin.z = floor2(piecePos.z, COORDS_Z_STEP);
         _rideConstructionState = RIDE_CONSTRUCTION_STATE_FRONT;
         _currentTrackSelectionFlags = 0;
-        _rideConstructionArrowPulseTime = 0;
-        _currentTrackPieceDirection = direction & 3;
-        int32_t slope = _currentTrackCurve;
-        int32_t slopeEnd = _previousTrackSlopeEnd;
-        int32_t b2 = _currentTrackSlopeEnd;
-        int32_t bankEnd = _previousTrackBankEnd;
-        int32_t bankStart = _currentTrackBankEnd;
-        int32_t b5 = _currentTrackAlternative;
-        int32_t b4 = _currentTrackLiftHill;
+        _currentTrackPieceDirection = piecePos.direction & 3;
+        auto savedCurrentTrackCurve = _currentTrackCurve;
+        int32_t savedPreviousTrackSlopeEnd = _previousTrackSlopeEnd;
+        int32_t savedCurrentTrackSlopeEnd = _currentTrackSlopeEnd;
+        int32_t savedPreviousTrackBankEnd = _previousTrackBankEnd;
+        int32_t savedCurrentTrackBankEnd = _currentTrackBankEnd;
+        int32_t savedCurrentTrackAlternative = _currentTrackAlternative;
+        int32_t savedCurrentTrackLiftHill = _currentTrackLiftHill;
         ride_construction_set_default_next_piece();
         window_ride_construction_update_active_elements();
         auto ride = get_ride(_currentRideIndex);
         if (!ride_try_get_origin_element(ride, nullptr))
         {
             ride_initialise_construction_window(ride);
-            _currentTrackPieceDirection = direction & 3;
-            if (!(slope & 0x100))
+            _currentTrackPieceDirection = piecePos.direction & 3;
+            if (!(savedCurrentTrackCurve & RideConstructionSpecialPieceSelected))
             {
-                _currentTrackCurve = slope;
-                _previousTrackSlopeEnd = slopeEnd;
-                _currentTrackSlopeEnd = b2;
-                _previousTrackBankEnd = bankEnd;
-                _currentTrackBankEnd = bankStart;
-                _currentTrackAlternative = b5;
-                _currentTrackLiftHill = b4;
+                _currentTrackCurve = savedCurrentTrackCurve;
+                _previousTrackSlopeEnd = savedPreviousTrackSlopeEnd;
+                _currentTrackSlopeEnd = savedCurrentTrackSlopeEnd;
+                _previousTrackBankEnd = savedPreviousTrackBankEnd;
+                _currentTrackBankEnd = savedCurrentTrackBankEnd;
+                _currentTrackAlternative = savedCurrentTrackAlternative;
+                _currentTrackLiftHill = savedCurrentTrackLiftHill;
                 window_ride_construction_update_active_elements();
             }
         }
@@ -547,16 +468,16 @@ void window_ride_construction_mouseup_demolish_next_piece(int32_t x, int32_t y, 
         if (_rideConstructionState2 == RIDE_CONSTRUCTION_STATE_SELECTED
             || _rideConstructionState2 == RIDE_CONSTRUCTION_STATE_FRONT)
         {
-            if (type == TRACK_ELEM_MIDDLE_STATION || type == TRACK_ELEM_BEGIN_STATION)
+            if (type == TrackElemType::MiddleStation || type == TrackElemType::BeginStation)
             {
-                type = TRACK_ELEM_END_STATION;
+                type = TrackElemType::EndStation;
             }
         }
         if (_rideConstructionState2 == RIDE_CONSTRUCTION_STATE_BACK)
         {
-            if (type == TRACK_ELEM_MIDDLE_STATION)
+            if (type == TrackElemType::MiddleStation)
             {
-                type = TRACK_ELEM_BEGIN_STATION;
+                type = TrackElemType::BeginStation;
             }
         }
         if (network_get_mode() == NETWORK_MODE_CLIENT)
@@ -564,13 +485,10 @@ void window_ride_construction_mouseup_demolish_next_piece(int32_t x, int32_t y, 
             // rideConstructionState needs to be set again to the proper value, this only affects the client
             _rideConstructionState = RIDE_CONSTRUCTION_STATE_SELECTED;
         }
-        _currentTrackBegin.x = x;
-        _currentTrackBegin.y = y;
-        _currentTrackBegin.z = z;
-        _currentTrackPieceDirection = direction;
+        _currentTrackBegin = piecePos;
+        _currentTrackPieceDirection = piecePos.direction;
         _currentTrackPieceType = type;
         _currentTrackSelectionFlags = 0;
-        _rideConstructionArrowPulseTime = 0;
         if (_rideConstructionState2 == RIDE_CONSTRUCTION_STATE_FRONT)
         {
             ride_select_next_section();

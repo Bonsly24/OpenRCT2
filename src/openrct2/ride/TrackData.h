@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (c) 2014-2019 OpenRCT2 developers
+ * Copyright (c) 2014-2020 OpenRCT2 developers
  *
  * For a complete list of all authors, please refer to contributors.md
  * Interested in contributing? Visit https://github.com/OpenRCT2/OpenRCT2
@@ -13,31 +13,24 @@
 #include "Track.h"
 #include "TrackPaint.h"
 
+constexpr const uint8_t MaxSequencesPerPiece = 16;
+
 // 0x009968BB, 0x009968BC, 0x009968BD, 0x009968BF, 0x009968C1, 0x009968C3
-extern const rct_track_coordinates TrackCoordinates[256];
-// 0x009972BB, 0x009972BC, 0x009972BD, 0x009972BF, 0x009972C1, 0x009972C3
-extern const rct_track_coordinates FlatTrackCoordinates[253];
+extern const rct_track_coordinates TrackCoordinates[TrackElemType::Count];
 
-extern const uint8_t TrackSequenceProperties[256][16];
-extern const uint8_t FlatRideTrackSequenceProperties[256][16];
+extern const uint8_t TrackSequenceProperties[TrackElemType::Count][MaxSequencesPerPiece];
 
-extern const uint64_t RideTypePossibleTrackConfigurations[RIDE_TYPE_COUNT];
-extern const rct_preview_track* TrackBlocks[256];
-extern const rct_preview_track* FlatRideTrackBlocks[256];
+extern const rct_preview_track* TrackBlocks[TrackElemType::Count];
 
-extern const uint8_t TrackPieceLengths[256];
+extern const uint8_t TrackPieceLengths[TrackElemType::Count];
 
 struct track_curve_chain
 {
-    uint16_t next;
-    uint16_t previous;
+    int32_t next;
+    int32_t previous;
 };
 
-extern const track_curve_chain gTrackCurveChain[256];
-extern const track_curve_chain gFlatRideTrackCurveChain[256];
-
-extern const TRACK_PAINT_FUNCTION_GETTER RideTypeTrackPaintFunctions[RIDE_TYPE_COUNT];
-extern const uint32_t* RideTypeTrackPaintFunctionsOld[RIDE_TYPE_COUNT];
+extern const track_curve_chain gTrackCurveChain[TrackElemType::Count];
 
 struct track_descriptor
 {
@@ -52,18 +45,9 @@ struct track_descriptor
 
 extern const track_descriptor gTrackDescriptors[142];
 
-struct rct_vehicle_info_list
-{
-    uint16_t size;
-    const rct_vehicle_info* info;
-};
+extern const track_type_t AlternativeTrackTypes[TrackElemType::Count];
 
-extern const rct_vehicle_info_list* const* const gTrackVehicleInfo[17];
-
-extern const int16_t AlternativeTrackTypes[256];
-
-extern const money32 TrackPricing[256];
-extern const money32 FlatRideTrackPricing[256];
+extern const money32 TrackPricing[TrackElemType::Count];
 
 struct dodgems_track_size
 {
@@ -73,14 +57,20 @@ struct dodgems_track_size
     uint8_t bottom;
 };
 
-extern const dodgems_track_size DodgemsTrackSize[256];
+constexpr const dodgems_track_size DodgemsTrackSize(track_type_t type)
+{
+    if (type == TrackElemType::FlatTrack2x2)
+        return { 4, 4, 59, 59 };
+    if (type == TrackElemType::FlatTrack4x4)
+        return { 4, 4, 123, 123 };
+    if (type == TrackElemType::FlatTrack2x4)
+        return { 4, 4, 59, 123 };
+    return { 0, 0, 0, 0 };
+}
+extern const track_type_t TrackElementMirrorMap[TrackElemType::Count];
 
-extern const uint8_t TrackElementMirrorMap[256];
+extern const uint32_t TrackHeightMarkerPositions[TrackElemType::Count];
 
-extern const uint32_t TrackHeightMarkerPositions[256];
+extern const uint8_t TrackSequenceElementAllowedWallEdges[TrackElemType::Count][16];
 
-extern const uint8_t TrackSequenceElementAllowedWallEdges[256][16];
-extern const uint8_t FlatRideTrackSequenceElementAllowedWallEdges[256][16];
-
-extern const uint16_t FlatTrackFlags[256];
-extern const uint16_t TrackFlags[256];
+extern const uint16_t TrackFlags[TrackElemType::Count];

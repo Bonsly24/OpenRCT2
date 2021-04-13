@@ -8,6 +8,7 @@
  *****************************************************************************/
 
 #include "TestData.h"
+#include "helpers/StringHelpers.hpp"
 
 #include <gtest/gtest.h>
 #include <openrct2/core/Crypt.h>
@@ -67,7 +68,7 @@ TEST_F(CryptTests, SHA1_Multiple)
     };
 
     auto alg = Crypt::CreateSHA1();
-    for (auto s : input)
+    for (const auto& s : input)
     {
         alg->Update(s.data(), s.size());
     }
@@ -98,7 +99,7 @@ TEST_F(CryptTests, SHA1_Many)
         "This park is really clean and tidy",
         "This balloon from Balloon Stall 1 is really good value",
     };
-    for (auto s : inputA)
+    for (const auto& s : inputA)
     {
         alg->Update(s.data(), s.size());
     }
@@ -112,7 +113,7 @@ TEST_F(CryptTests, SHA1_Many)
         "This park is really clean and tidy",
         "Merry-go-round 2 looks too intense for me",
     };
-    for (auto s : inputB)
+    for (const auto& s : inputB)
     {
         alg->Update(s.data(), s.size());
     }
@@ -153,7 +154,7 @@ TEST_F(CryptTests, RSA_VerifyWithPublic)
 
 TEST_F(CryptTests, RSAKey_GetPublic)
 {
-    auto inPem = File::ReadAllText(GetTestPublicKeyPath());
+    auto inPem = NormaliseLineEndings(File::ReadAllText(GetTestPublicKeyPath()));
     auto publicKey = Crypt::CreateRSAKey();
     publicKey->SetPublic(inPem);
     auto outPem = publicKey->GetPublic();

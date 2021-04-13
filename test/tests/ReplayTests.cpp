@@ -59,7 +59,7 @@ static std::vector<ReplayTestData> GetReplayFiles()
         ReplayTestData test;
         test.name = sanitizeTestName(scanner->GetFileInfo()->Name);
         test.filePath = scanner->GetPath();
-        res.push_back(test);
+        res.push_back(std::move(test));
     }
     return res;
 }
@@ -71,6 +71,10 @@ protected:
 
 TEST_P(ReplayTests, RunReplay)
 {
+#ifdef PLATFORM_32BIT
+    log_warning("Replay Tests have not been performed. OpenRCT2/OpenRCT2#11279.");
+    return;
+#else
     gOpenRCT2Headless = true;
     gOpenRCT2NoGraphics = true;
     core_init();
@@ -94,8 +98,12 @@ TEST_P(ReplayTests, RunReplay)
     while (replayManager->IsReplaying())
     {
         gs->UpdateLogic();
-        ASSERT_TRUE(replayManager->IsPlaybackStateMismatching() == false);
+        if (replayManager->IsPlaybackStateMismatching())
+            break;
     }
+    ASSERT_FALSE(replayManager->IsReplaying());
+    ASSERT_FALSE(replayManager->IsPlaybackStateMismatching());
+#endif
 }
 
 static void PrintTo(const ReplayTestData& testData, std::ostream* os)

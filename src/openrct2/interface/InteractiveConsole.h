@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (c) 2014-2019 OpenRCT2 developers
+ * Copyright (c) 2014-2020 OpenRCT2 developers
  *
  * For a complete list of all authors, please refer to contributors.md
  * Interested in contributing? Visit https://github.com/OpenRCT2/OpenRCT2
@@ -12,24 +12,22 @@
 #include "../common.h"
 #include "../localisation/FormatCodes.h"
 
-#include <deque>
 #include <future>
 #include <queue>
 #include <string>
-#include <tuple>
 
 struct rct_drawpixelinfo;
 struct TextInputSession;
 
-enum CONSOLE_INPUT
+enum class ConsoleInput : uint8_t
 {
-    CONSOLE_INPUT_NONE,
-    CONSOLE_INPUT_LINE_CLEAR,
-    CONSOLE_INPUT_LINE_EXECUTE,
-    CONSOLE_INPUT_HISTORY_PREVIOUS,
-    CONSOLE_INPUT_HISTORY_NEXT,
-    CONSOLE_INPUT_SCROLL_PREVIOUS,
-    CONSOLE_INPUT_SCROLL_NEXT,
+    None,
+    LineClear,
+    LineExecute,
+    HistoryPrevious,
+    HistoryNext,
+    ScrollPrevious,
+    ScrollNext,
 };
 
 class InteractiveConsole
@@ -48,13 +46,14 @@ public:
     virtual void Clear() abstract;
     virtual void Close() abstract;
     virtual void Hide() abstract;
-    virtual void WriteLine(const std::string& s, uint32_t colourFormat) abstract;
+    virtual void WriteLine(const std::string& s, FormatToken colourFormat) abstract;
 };
 
 class StdInOutConsole final : public InteractiveConsole
 {
 private:
     std::queue<std::tuple<std::promise<void>, std::string>> _evalQueue;
+    bool _isPromptShowing{};
 
 public:
     void Start();
@@ -70,5 +69,5 @@ public:
     {
         InteractiveConsole::WriteLine(s);
     }
-    void WriteLine(const std::string& s, uint32_t colourFormat) override;
+    void WriteLine(const std::string& s, FormatToken colourFormat) override;
 };

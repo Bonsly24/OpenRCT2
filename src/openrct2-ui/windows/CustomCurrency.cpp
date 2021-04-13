@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (c) 2014-2019 OpenRCT2 developers
+ * Copyright (c) 2014-2020 OpenRCT2 developers
  *
  * For a complete list of all authors, please refer to contributors.md
  * Interested in contributing? Visit https://github.com/OpenRCT2/OpenRCT2
@@ -16,6 +16,10 @@
 #include <openrct2/localisation/Localisation.h>
 #include <openrct2/util/Util.h>
 
+static constexpr const rct_string_id WINDOW_TITLE = STR_CUSTOM_CURRENCY_WINDOW_TITLE;
+static constexpr const int32_t WH = 100;
+static constexpr const int32_t WW = 400;
+
 // clang-format off
 enum WINDOW_CUSTOM_CURRENCY_WIDGET_IDX {
     WIDX_BACKGROUND,
@@ -30,13 +34,11 @@ enum WINDOW_CUSTOM_CURRENCY_WIDGET_IDX {
 };
 
 static rct_widget window_custom_currency_widgets[] = {
-    { WWT_FRAME,            0,  0,      399,    0,      99, 0xFFFFFFFF,                         STR_NONE },
-    { WWT_CAPTION,          0,  1,      398,    1,      14, STR_CUSTOM_CURRENCY_WINDOW_TITLE,   STR_WINDOW_TITLE_TIP },
-    { WWT_CLOSEBOX,         0,  387,    397,    2,      13, STR_CLOSE_X,                        STR_CLOSE_WINDOW_TIP },
-      SPINNER_WIDGETS      (1,  100,    200,    30,     40, STR_CHEAT_CURRENCY_FORMAT,          STR_NONE), // NB: 3 widgets
-    { WWT_BUTTON,           1,  120,    200,    50,     60, 0,                                  STR_NONE },
-    { WWT_DROPDOWN,         1,  220,    350,    50,     60, STR_NONE,                           STR_NONE },
-    { WWT_BUTTON,           1,  339,    349,    51,     59, STR_DROPDOWN_GLYPH,                 STR_NONE },
+    WINDOW_SHIM(WINDOW_TITLE, WW, WH),
+    MakeSpinnerWidgets({100, 30}, {101, 11}, WindowWidgetType::Spinner,  WindowColour::Secondary, STR_CHEAT_CURRENCY_FORMAT), // NB: 3 widgets
+    MakeWidget        ({120, 50}, { 81, 11}, WindowWidgetType::Button,   WindowColour::Secondary, STR_EMPTY                ),
+    MakeWidget        ({220, 50}, {131, 11}, WindowWidgetType::DropdownMenu, WindowColour::Secondary                           ),
+    MakeWidget        ({339, 51}, { 11,  9}, WindowWidgetType::Button,   WindowColour::Secondary, STR_DROPDOWN_GLYPH       ),
     { WIDGETS_END },
 };
 
@@ -48,36 +50,14 @@ static void custom_currency_window_text_input(struct rct_window *w, rct_widgetin
 static void custom_currency_window_paint(rct_window *w, rct_drawpixelinfo *dpi);
 
 
-static rct_window_event_list _windowCustomCurrencyEvents = {
-    nullptr,
-    custom_currency_window_mouseup,
-    nullptr,
-    custom_currency_window_mousedown,
-    custom_currency_window_dropdown,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    custom_currency_window_text_input,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    custom_currency_window_paint,
-    nullptr
-};
+static rct_window_event_list _windowCustomCurrencyEvents([](auto& events)
+{
+    events.mouse_up = &custom_currency_window_mouseup;
+    events.mouse_down = &custom_currency_window_mousedown;
+    events.dropdown = &custom_currency_window_dropdown;
+    events.text_input = &custom_currency_window_text_input;
+    events.paint = &custom_currency_window_paint;
+});
 // clang-format on
 
 rct_window* custom_currency_window_open()
@@ -89,13 +69,13 @@ rct_window* custom_currency_window_open()
     if (window != nullptr)
         return window;
 
-    window = window_create_centred(400, 100, &_windowCustomCurrencyEvents, WC_CUSTOM_CURRENCY_CONFIG, 0);
+    window = WindowCreateCentred(400, 100, &_windowCustomCurrencyEvents, WC_CUSTOM_CURRENCY_CONFIG, 0);
     window->widgets = window_custom_currency_widgets;
     window->enabled_widgets = (1 << WIDX_CLOSE) | (1 << WIDX_RATE) | (1 << WIDX_RATE_UP) | (1 << WIDX_RATE_DOWN)
         | (1 << WIDX_SYMBOL_TEXT) | (1 << WIDX_AFFIX_DROPDOWN) | (1 << WIDX_AFFIX_DROPDOWN_BUTTON);
 
     window->hold_down_widgets = (1 << WIDX_RATE_UP) | (1 << WIDX_RATE_DOWN);
-    window_init_scroll_widgets(window);
+    WindowInitScrollWidgets(window);
     window->colours[0] = COLOUR_LIGHT_BROWN;
     window->colours[1] = COLOUR_LIGHT_BROWN;
     window->colours[2] = COLOUR_LIGHT_BROWN;
@@ -114,17 +94,17 @@ static void custom_currency_window_mousedown(rct_window* w, rct_widgetindex widg
             break;
 
         case WIDX_RATE_UP:
-            CurrencyDescriptors[CURRENCY_CUSTOM].rate += 1;
-            gConfigGeneral.custom_currency_rate = CurrencyDescriptors[CURRENCY_CUSTOM].rate;
+            CurrencyDescriptors[EnumValue(CurrencyType::Custom)].rate += 1;
+            gConfigGeneral.custom_currency_rate = CurrencyDescriptors[EnumValue(CurrencyType::Custom)].rate;
             config_save_default();
             window_invalidate_all();
             break;
 
         case WIDX_RATE_DOWN:
-            if (CurrencyDescriptors[CURRENCY_CUSTOM].rate > 1)
+            if (CurrencyDescriptors[EnumValue(CurrencyType::Custom)].rate > 1)
             {
-                CurrencyDescriptors[CURRENCY_CUSTOM].rate -= 1;
-                gConfigGeneral.custom_currency_rate = CurrencyDescriptors[CURRENCY_CUSTOM].rate;
+                CurrencyDescriptors[EnumValue(CurrencyType::Custom)].rate -= 1;
+                gConfigGeneral.custom_currency_rate = CurrencyDescriptors[EnumValue(CurrencyType::Custom)].rate;
                 config_save_default();
                 window_invalidate_all();
             }
@@ -137,17 +117,17 @@ static void custom_currency_window_mousedown(rct_window* w, rct_widgetindex widg
             gDropdownItemsFormat[1] = STR_DROPDOWN_MENU_LABEL;
             gDropdownItemsArgs[1] = STR_SUFFIX;
 
-            window_dropdown_show_text_custom_width(
-                w->x + widget->left, w->y + widget->top, widget->bottom - widget->top + 1, w->colours[1], 0,
-                DROPDOWN_FLAG_STAY_OPEN, 2, widget->right - widget->left - 3);
+            WindowDropdownShowTextCustomWidth(
+                { w->windowPos.x + widget->left, w->windowPos.y + widget->top }, widget->height() + 1, w->colours[1], 0,
+                Dropdown::Flag::StayOpen, 2, widget->width() - 3);
 
-            if (CurrencyDescriptors[CURRENCY_CUSTOM].affix_unicode == CURRENCY_PREFIX)
+            if (CurrencyDescriptors[EnumValue(CurrencyType::Custom)].affix_unicode == CurrencyAffix::Prefix)
             {
-                dropdown_set_checked(0, true);
+                Dropdown::SetChecked(0, true);
             }
             else
             {
-                dropdown_set_checked(1, true);
+                Dropdown::SetChecked(1, true);
             }
 
             break;
@@ -155,7 +135,7 @@ static void custom_currency_window_mousedown(rct_window* w, rct_widgetindex widg
         case WIDX_SYMBOL_TEXT:
             window_text_input_raw_open(
                 w, WIDX_SYMBOL_TEXT, STR_CUSTOM_CURRENCY_SYMBOL_INPUT_TITLE, STR_CUSTOM_CURRENCY_SYMBOL_INPUT_DESC,
-                CurrencyDescriptors[CURRENCY_CUSTOM].symbol_unicode, CURRENCY_SYMBOL_MAX_SIZE);
+                CurrencyDescriptors[EnumValue(CurrencyType::Custom)].symbol_unicode, CURRENCY_SYMBOL_MAX_SIZE);
             break;
     }
 }
@@ -167,7 +147,7 @@ static void custom_currency_window_mouseup(rct_window* w, rct_widgetindex widget
         case WIDX_RATE:
             window_text_input_open(
                 w, WIDX_RATE, STR_RATE_INPUT_TITLE, STR_RATE_INPUT_DESC, STR_FORMAT_INTEGER,
-                (uint32_t)CurrencyDescriptors[CURRENCY_CUSTOM].rate, CURRENCY_RATE_MAX_NUM_DIGITS);
+                static_cast<uint32_t>(CurrencyDescriptors[EnumValue(CurrencyType::Custom)].rate), CURRENCY_RATE_MAX_NUM_DIGITS);
             break;
     }
 }
@@ -181,16 +161,16 @@ static void custom_currency_window_dropdown([[maybe_unused]] rct_window* w, rct_
     {
         if (dropdownIndex == 0)
         {
-            CurrencyDescriptors[CURRENCY_CUSTOM].affix_ascii = CURRENCY_PREFIX;
-            CurrencyDescriptors[CURRENCY_CUSTOM].affix_unicode = CURRENCY_PREFIX;
+            CurrencyDescriptors[EnumValue(CurrencyType::Custom)].affix_ascii = CurrencyAffix::Prefix;
+            CurrencyDescriptors[EnumValue(CurrencyType::Custom)].affix_unicode = CurrencyAffix::Prefix;
         }
         else if (dropdownIndex == 1)
         {
-            CurrencyDescriptors[CURRENCY_CUSTOM].affix_ascii = CURRENCY_SUFFIX;
-            CurrencyDescriptors[CURRENCY_CUSTOM].affix_unicode = CURRENCY_SUFFIX;
+            CurrencyDescriptors[EnumValue(CurrencyType::Custom)].affix_ascii = CurrencyAffix::Suffix;
+            CurrencyDescriptors[EnumValue(CurrencyType::Custom)].affix_unicode = CurrencyAffix::Suffix;
         }
 
-        gConfigGeneral.custom_currency_affix = CurrencyDescriptors[CURRENCY_CUSTOM].affix_unicode;
+        gConfigGeneral.custom_currency_affix = CurrencyDescriptors[EnumValue(CurrencyType::Custom)].affix_unicode;
         config_save_default();
 
         window_invalidate_all();
@@ -206,10 +186,10 @@ static void custom_currency_window_text_input([[maybe_unused]] struct rct_window
     switch (widgetIndex)
     {
         case WIDX_SYMBOL_TEXT:
-            safe_strcpy(CurrencyDescriptors[CURRENCY_CUSTOM].symbol_unicode, text, CURRENCY_SYMBOL_MAX_SIZE);
+            safe_strcpy(CurrencyDescriptors[EnumValue(CurrencyType::Custom)].symbol_unicode, text, CURRENCY_SYMBOL_MAX_SIZE);
 
             safe_strcpy(
-                gConfigGeneral.custom_currency_symbol, CurrencyDescriptors[CURRENCY_CUSTOM].symbol_unicode,
+                gConfigGeneral.custom_currency_symbol, CurrencyDescriptors[EnumValue(CurrencyType::Custom)].symbol_unicode,
                 CURRENCY_SYMBOL_MAX_SIZE);
 
             config_save_default();
@@ -220,8 +200,8 @@ static void custom_currency_window_text_input([[maybe_unused]] struct rct_window
             rate = strtol(text, &end, 10);
             if (*end == '\0')
             {
-                CurrencyDescriptors[CURRENCY_CUSTOM].rate = rate;
-                gConfigGeneral.custom_currency_rate = CurrencyDescriptors[CURRENCY_CUSTOM].rate;
+                CurrencyDescriptors[EnumValue(CurrencyType::Custom)].rate = rate;
+                gConfigGeneral.custom_currency_rate = CurrencyDescriptors[EnumValue(CurrencyType::Custom)].rate;
                 config_save_default();
                 window_invalidate_all();
             }
@@ -231,40 +211,35 @@ static void custom_currency_window_text_input([[maybe_unused]] struct rct_window
 
 static void custom_currency_window_paint(rct_window* w, rct_drawpixelinfo* dpi)
 {
-    int32_t x, y;
+    auto ft = Formatter::Common();
+    ft.Add<int32_t>(100);
 
-    set_format_arg(0, int32_t, 100);
+    WindowDrawWidgets(w, dpi);
 
-    window_draw_widgets(w, dpi);
+    auto screenCoords = w->windowPos + ScreenCoordsXY{ 10, 30 };
 
-    x = w->x + 10;
-    y = w->y + 30;
+    DrawTextBasic(dpi, screenCoords, STR_RATE, {}, { w->colours[1] });
 
-    gfx_draw_string_left(dpi, STR_RATE, nullptr, w->colours[1], x, y);
+    int32_t baseExchange = CurrencyDescriptors[EnumValue(CurrencyType::Pounds)].rate;
+    ft = Formatter();
+    ft.Add<int32_t>(baseExchange);
+    DrawTextBasic(dpi, screenCoords + ScreenCoordsXY{ 200, 0 }, STR_CUSTOM_CURRENCY_EQUIVALENCY, ft, { w->colours[1] });
 
-    int32_t baseExchange = CurrencyDescriptors[CURRENCY_POUNDS].rate;
-    set_format_arg(0, int32_t, baseExchange);
-    gfx_draw_string_left(dpi, STR_CUSTOM_CURRENCY_EQUIVALENCY, gCommonFormatArgs, w->colours[1], x + 200, y);
+    screenCoords.y += 20;
 
-    y += 20;
+    DrawTextBasic(dpi, screenCoords, STR_CURRENCY_SYMBOL_TEXT, {}, { w->colours[1] });
 
-    gfx_draw_string_left(dpi, STR_CURRENCY_SYMBOL_TEXT, nullptr, w->colours[1], x, y);
+    screenCoords = w->windowPos
+        + ScreenCoordsXY{ window_custom_currency_widgets[WIDX_SYMBOL_TEXT].left + 1,
+                          window_custom_currency_widgets[WIDX_SYMBOL_TEXT].top };
 
-    gfx_draw_string(
-        dpi, CurrencyDescriptors[CURRENCY_CUSTOM].symbol_unicode, w->colours[1],
-        w->x + window_custom_currency_widgets[WIDX_SYMBOL_TEXT].left + 1,
-        w->y + window_custom_currency_widgets[WIDX_SYMBOL_TEXT].top);
+    gfx_draw_string(dpi, screenCoords, CurrencyDescriptors[EnumValue(CurrencyType::Custom)].symbol_unicode, { w->colours[1] });
 
-    if (CurrencyDescriptors[CURRENCY_CUSTOM].affix_unicode == CURRENCY_PREFIX)
-    {
-        gfx_draw_string_left(
-            dpi, STR_PREFIX, w, w->colours[1], w->x + window_custom_currency_widgets[WIDX_AFFIX_DROPDOWN].left + 1,
-            w->y + window_custom_currency_widgets[WIDX_AFFIX_DROPDOWN].top);
-    }
-    else
-    {
-        gfx_draw_string_left(
-            dpi, STR_SUFFIX, w, w->colours[1], w->x + window_custom_currency_widgets[WIDX_AFFIX_DROPDOWN].left + 1,
-            w->y + window_custom_currency_widgets[WIDX_AFFIX_DROPDOWN].top);
-    }
+    auto drawPos = w->windowPos
+        + ScreenCoordsXY{ window_custom_currency_widgets[WIDX_AFFIX_DROPDOWN].left + 1,
+                          window_custom_currency_widgets[WIDX_AFFIX_DROPDOWN].top };
+    rct_string_id stringId = (CurrencyDescriptors[EnumValue(CurrencyType::Custom)].affix_unicode == CurrencyAffix::Prefix)
+        ? STR_PREFIX
+        : STR_SUFFIX;
+    DrawTextBasic(dpi, drawPos, stringId, w, { w->colours[1] });
 }

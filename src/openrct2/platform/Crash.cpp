@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (c) 2014-2019 OpenRCT2 developers
+ * Copyright (c) 2014-2020 OpenRCT2 developers
  *
  * For a complete list of all authors, please refer to contributors.md
  * Interested in contributing? Visit https://github.com/OpenRCT2/OpenRCT2
@@ -10,6 +10,7 @@
 #include "Crash.h"
 
 #ifdef USE_BREAKPAD
+#    include <iterator>
 #    include <map>
 #    include <memory>
 #    include <stdio.h>
@@ -23,14 +24,20 @@
 #        error Breakpad support not implemented yet for this platform
 #    endif
 
+#    include "../Context.h"
+#    include "../Game.h"
+#    include "../OpenRCT2.h"
 #    include "../Version.h"
 #    include "../config/Config.h"
 #    include "../core/Console.hpp"
+#    include "../core/Guard.hpp"
 #    include "../core/String.hpp"
 #    include "../interface/Screenshot.h"
 #    include "../localisation/Language.h"
+#    include "../object/ObjectManager.h"
 #    include "../rct2/S6Exporter.h"
 #    include "../scenario/Scenario.h"
+#    include "../util/SawyerCoding.h"
 #    include "../util/Util.h"
 #    include "platform.h"
 
@@ -45,19 +52,21 @@ const wchar_t* _wszCommitSha1Short = WSZ("");
 // OPENRCT2_ARCHITECTURE is required to be defined in version.h
 const wchar_t* _wszArchitecture = WSZ(OPENRCT2_ARCHITECTURE);
 
+#    define BACKTRACE_TOKEN L"e650b4d649dc93a37d98b8611fa47b8732c6c08386979c22b5c3a545fea65f76"
+
 // Note: uploading gzipped crash dumps manually requires specifying
 // 'Content-Encoding: gzip' header in HTTP request, but we cannot do that,
 // so just hope the file name with '.gz' suffix is enough.
-// For docs on uplading to backtrace.io check
+// For docs on uploading to backtrace.io check
 // https://documentation.backtrace.io/product_integration_minidump_breakpad/
 static bool UploadMinidump(const std::map<std::wstring, std::wstring>& files, int& error, std::wstring& response)
 {
-    for (auto file : files)
+    for (const auto& file : files)
     {
         wprintf(L"files[%s] = %s\n", file.first.c_str(), file.second.c_str());
     }
     std::wstring url(L"https://openrct2.sp.backtrace.io:6098/"
-                     L"post?format=minidump&token=27bfc474b8739e7c1df37180727e717a0a95d3bf3f2a8eaaf17ad321fb179c6f");
+                     L"post?format=minidump&token=" BACKTRACE_TOKEN);
     std::map<std::wstring, std::wstring> parameters;
     parameters[L"product_name"] = L"openrct2";
     // In case of releases this can be empty
@@ -67,10 +76,17 @@ static bool UploadMinidump(const std::map<std::wstring, std::wstring>& files, in
     }
     else
     {
-        parameters[L"commit"] = String::ToUtf16(gVersionInfoFull);
+        parameters[L"commit"] = String::ToWideChar(gVersionInfoFull);
     }
+
+    auto assertMsg = Guard::GetLastAssertMessage();
+    if (assertMsg)
+    {
+        parameters[L"assert_failure"] = String::ToWideChar(*assertMsg);
+    }
+
     int timeout = 10000;
-    bool success = google_breakpad::HTTPUpload::SendRequest(url, parameters, files, &timeout, &response, &error);
+    bool success = google_breakpad::HTTPUpload::SendMultipartPostRequest(url, parameters, files, &timeout, &response, &error);
     wprintf(L"Success = %d, error = %d, response = %s\n", success, error, response.c_str());
     return success;
 }
@@ -99,18 +115,20 @@ static bool OnCrash(
     wchar_t saveFilePath[MAX_PATH];
     wchar_t configFilePath[MAX_PATH];
     wchar_t saveFilePathGZIP[MAX_PATH];
-    swprintf_s(dumpFilePath, sizeof(dumpFilePath), L"%s\\%s.dmp", dumpPath, miniDumpId);
-    swprintf_s(saveFilePath, sizeof(saveFilePath), L"%s\\%s.sv6", dumpPath, miniDumpId);
-    swprintf_s(configFilePath, sizeof(configFilePath), L"%s\\%s.ini", dumpPath, miniDumpId);
-    swprintf_s(saveFilePathGZIP, sizeof(saveFilePathGZIP), L"%s\\%s.sv6.gz", dumpPath, miniDumpId);
+    wchar_t recordFilePathNew[MAX_PATH];
+    swprintf_s(dumpFilePath, std::size(dumpFilePath), L"%s\\%s.dmp", dumpPath, miniDumpId);
+    swprintf_s(saveFilePath, std::size(saveFilePath), L"%s\\%s.sv6", dumpPath, miniDumpId);
+    swprintf_s(configFilePath, std::size(configFilePath), L"%s\\%s.ini", dumpPath, miniDumpId);
+    swprintf_s(saveFilePathGZIP, std::size(saveFilePathGZIP), L"%s\\%s.sv6.gz", dumpPath, miniDumpId);
+    swprintf_s(recordFilePathNew, std::size(recordFilePathNew), L"%s\\%s.sv6r", dumpPath, miniDumpId);
 
     wchar_t dumpFilePathNew[MAX_PATH];
     swprintf_s(
-        dumpFilePathNew, sizeof(dumpFilePathNew), L"%s\\%s(%s_%s).dmp", dumpPath, miniDumpId, _wszCommitSha1Short,
+        dumpFilePathNew, std::size(dumpFilePathNew), L"%s\\%s(%s_%s).dmp", dumpPath, miniDumpId, _wszCommitSha1Short,
         _wszArchitecture);
 
     wchar_t dumpFilePathGZIP[MAX_PATH];
-    swprintf_s(dumpFilePathGZIP, sizeof(dumpFilePathGZIP), L"%s.gz", dumpFilePathNew);
+    swprintf_s(dumpFilePathGZIP, std::size(dumpFilePathGZIP), L"%s.gz", dumpFilePathNew);
 
     // Compress the dump
     {
@@ -132,6 +150,8 @@ static bool OnCrash(
         fclose(dest);
     }
 
+    bool with_record = stop_silent_record();
+
     // Try to rename the files
     if (_wrename(dumpFilePath, dumpFilePathNew) == 0)
     {
@@ -149,18 +169,29 @@ static bool OnCrash(
     wprintf(L"Commit: %s\n", _wszCommitSha1Short);
 
     bool savedGameDumped = false;
-    utf8* saveFilePathUTF8 = widechar_to_utf8(saveFilePath);
+    auto saveFilePathUTF8 = String::ToUtf8(saveFilePath);
     try
     {
         auto exporter = std::make_unique<S6Exporter>();
+
+        // Make sure the save is using the current viewport settings.
+        viewport_set_saved_view();
+
+        // Disable RLE encoding for better compression.
+        gUseRLE = false;
+
+        // Export all loaded objects to avoid having custom objects missing in the reports.
+        auto ctx = OpenRCT2::GetContext();
+        auto& objManager = ctx->GetObjectManager();
+        exporter->ExportObjectsList = objManager.GetPackableObjects();
+
         exporter->Export();
-        exporter->SaveGame(saveFilePathUTF8);
+        exporter->SaveGame(saveFilePathUTF8.c_str());
         savedGameDumped = true;
     }
     catch (const std::exception&)
     {
     }
-    free(saveFilePathUTF8);
 
     // Compress the save
     if (savedGameDumped)
@@ -180,20 +211,31 @@ static bool OnCrash(
         fclose(dest);
     }
 
-    utf8* configFilePathUTF8 = widechar_to_utf8(configFilePath);
-    if (config_save(configFilePathUTF8))
+    auto configFilePathUTF8 = String::ToUtf8(configFilePath);
+    if (config_save(configFilePathUTF8.c_str()))
     {
         uploadFiles[L"attachment_config.ini"] = configFilePath;
     }
-    free(configFilePathUTF8);
 
     std::string screenshotPath = screenshot_dump();
     if (!screenshotPath.empty())
     {
-        wchar_t* screenshotPathWchar = utf8_to_widechar(screenshotPath.c_str());
-        auto screenshotPathW = std::wstring(screenshotPathWchar);
-        free(screenshotPathWchar);
+        auto screenshotPathW = String::ToWideChar(screenshotPath.c_str());
         uploadFiles[L"attachment_screenshot.png"] = screenshotPathW;
+    }
+
+    if (with_record)
+    {
+        auto sv6rPathW = String::ToWideChar(gSilentRecordingName);
+        bool record_copied = CopyFileW(sv6rPathW.c_str(), recordFilePathNew, true);
+        if (record_copied)
+        {
+            uploadFiles[L"attachment_replay.sv6r"] = recordFilePathNew;
+        }
+        else
+        {
+            with_record = false;
+        }
     }
 
     if (gOpenRCT2SilentBreakpad)
@@ -223,31 +265,40 @@ static bool OnCrash(
         {
             const wchar_t* MessageFormat2 = L"There was a problem while uploading the dump. Please upload it manually to "
                                             L"GitHub. It should be highlighted for you once you close this message.\n"
+                                            L"It might be because you are using outdated build and we have disabled its "
+                                            L"access token. Make sure you are running recent version.\n"
+                                            L"Dump file = %s\n"
                                             L"Please provide following information as well:\n"
                                             L"Error code = %d\n"
                                             L"Response = %s";
-            swprintf_s(message, MessageFormat2, error, response.c_str());
+            swprintf_s(message, MessageFormat2, dumpFilePath, error, response.c_str());
             MessageBoxW(nullptr, message, WSZ(OPENRCT2_NAME), MB_OK | MB_ICONERROR);
         }
         else
         {
-            MessageBoxW(nullptr, L"Dump uploaded succesfully.", WSZ(OPENRCT2_NAME), MB_OK | MB_ICONINFORMATION);
+            MessageBoxW(nullptr, L"Dump uploaded successfully.", WSZ(OPENRCT2_NAME), MB_OK | MB_ICONINFORMATION);
         }
     }
     HRESULT coInitializeResult = CoInitialize(nullptr);
     if (SUCCEEDED(coInitializeResult))
     {
         LPITEMIDLIST pidl = ILCreateFromPathW(dumpPath);
-        LPITEMIDLIST files[3];
+        LPITEMIDLIST files[6];
         uint32_t numFiles = 0;
 
         files[numFiles++] = ILCreateFromPathW(dumpFilePath);
         // There should be no need to check if this file exists, if it doesn't
         // it simply shouldn't get selected.
         files[numFiles++] = ILCreateFromPathW(dumpFilePathGZIP);
+        files[numFiles++] = ILCreateFromPathW(configFilePath);
         if (savedGameDumped)
         {
             files[numFiles++] = ILCreateFromPathW(saveFilePath);
+            files[numFiles++] = ILCreateFromPathW(saveFilePathGZIP);
+        }
+        if (with_record)
+        {
+            files[numFiles++] = ILCreateFromPathW(recordFilePathNew);
         }
         if (pidl != nullptr)
         {
@@ -269,11 +320,7 @@ static std::wstring GetDumpDirectory()
 {
     char userDirectory[MAX_PATH];
     platform_get_user_directory(userDirectory, nullptr, sizeof(userDirectory));
-
-    wchar_t* userDirectoryW = utf8_to_widechar(userDirectory);
-    auto result = std::wstring(userDirectoryW);
-    free(userDirectoryW);
-
+    auto result = String::ToWideChar(userDirectory);
     return result;
 }
 
